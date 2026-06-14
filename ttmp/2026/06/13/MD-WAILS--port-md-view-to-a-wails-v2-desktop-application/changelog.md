@@ -92,3 +92,13 @@ Addressed 4th PR #2 Codex review comment (frontend/dist/app.js close-file handle
 - /home/manuel/code/wesen/2026-05-07--md-server/pkg/watcher/watcher.go — Unwatch(filePath) removes from fsnotify + closes subscriber channels (eviction-on-close
 - /home/manuel/code/wesen/2026-05-07--md-server/pkg/watcher/watcher_test.go — new — 3 tests for Unwatch
 
+
+## 2026-06-14
+
+Fixed the multi-open watch-accumulation follow-up (diary Step 17 flagged it): openPath watched every file opened and never unwatched the previous one when switching. Two symptoms -- (1) stray reload: open A then B, save A -> file-changed{path:A} -> frontend ignores data.path -> ReopenCurrent re-renders B; (2) leak: per-opened-file goroutine + fsnotify watch for the app's lifetime (Linux inotify is bounded). Fix: openPath unwatches the previous currentFile before setting the new one (~4 lines, reuses the unwatchFile helper from Step 17). Added openpath_test.go (2 tests: switch unwatches old, no accumulation across 5 opens). build/test/lint green. Dev server was unstable this turn (signal 10/SIGUSR1 killed wails dev) so no fresh E2E, but the downstream unwatch->no-file-changed path was E2E-verified in Step 17. Commit bff4d7d.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-05-07--md-server/app.go — openPath now unwatches the previous currentFile before switching (fixes stray reload + fsnotify/goroutine leak across opens)
+- /home/manuel/code/wesen/2026-05-07--md-server/openpath_test.go — new -- tests the watch/unwatch sequence openPath performs (switch unwatch
+

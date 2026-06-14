@@ -1201,3 +1201,77 @@ A fourth Codex review comment arrived, this time on `frontend/dist/app.js` (the 
 - Commit (this step): `8322db1`.
 - PR reply: posted in-thread at `discussion_r3409639319`.
 - Wails watcher concurrency: dispatch send (`Start()`) and channel close (`Unwatch`) both under `fw.mu` → no send-on-closed race.
+
+## Step 18: Fix the multi-open watch-accumulation follow-up
+
+While tracing the Close fix (Step 17), I found a separate latent bug and noted it as a follow-up: `openPath` watched every file opened and never unwatched the previous one when switching. The user read the diary's "Next steps" note, asked what it was, then said to apply it. This step implements and tests the fix.
+
+### Prompt Context
+
+**User prompt (verbatim):** "fix the multi-open watch-accumulation follow-up <- what's that?" then "go ahead, apply"
+
+**Assistant interpretation:** (1) Explain the latent bug precisely (stray reload of the current file from a save to an unrelated file; fsnotify/goroutine leak across many opens). (2) Implement the fix in `openPath`: unwatch the previous `currentFile` before setting the new one.
+
+**Inferred user intent:** Close the follow-up that Step 17 surfaced, with the same rigor (code + tests + verification) as the review-driven fixes.
+
+### What I did
+
+- **Explained the bug first** (per the user's "what's that?"): traced the repro (open A → open B → A still watched → save A → `file-changed {path:A}` → frontend ignores `data.path` → `ReopenCurrent()` → B reloads) and the leak (goroutine + fsnotify watch per opened file, never reclaimed).
+- **Implemented the fix in `app.go` `openPath`** (~4 lines, before setting `currentFile`):
+  ```go
+  if old := a.currentFile; old != "" && old != abs {
+      a.unwatchFile(old)
+  }
+  a.currentFile = abs
+  a.watchFile(abs)
+  ```
+  Reuses the `unwatchFile` helper from Step 17. `openPath` is the only place `currentFile` changes except `CloseFile`, so this covers every file-switching entry point (menu Open, drag-drop, recent-files).
+- **Wrote `openpath_test.go`** with two tests that reproduce the exact watch/unwatch sequence `openPath` performs and assert the invariant against `a.watched`:
+  - `TestOpenPathUnwatchesPreviousFile`: open A → open B → A unwatched, B watched; reopening B is a no-op (A stays unwatched).
+  - `TestOpenPathKeepsSingleWatchAcrossManyOpens`: 5 distinct opens → exactly 1 file watched (no accumulation).
+
+### Why
+
+- `openPath` itself calls `runtime.WindowSetTitle(a.ctx, ...)` and panics with a nil ctx, so it can't be unit-tested directly. Testing the watch/unwatch *sequence* against `a.watched` is the right seam: it's exactly the invariant the fix changes, and it's observable without a Wails context.
+- The frontend `file-changed` listener ignoring `data.path` is what turns the stray watch into a visible symptom (B reloads). Fixing it at the backend (stop watching A) is the root-cause fix; adding a `data.path` compare in the frontend would be defense-in-depth but isn't necessary once the stray event can't be emitted.
+
+### What worked
+
+- Both tests pass on the first run; full suite green; `golangci-lint` 0 issues.
+- The downstream behavior (`unwatchFile` → `watcher.Unwatch` → no `file-changed`) was already E2E-verified in Step 17's close-fix (writing to a closed/unwatched file did not fire `file-changed`), so the chain is covered end to end.
+
+### What didn't work
+
+- **Could not E2E-verify via `wails dev` this turn.** The dev server kept dying: `setsid`, `nohup`, and `tmux` invocations all produced "Caught quit / Ctrl+C detected. Shutting down" within seconds, and the log showed "Overriding existing handler for signal 10" (SIGUSR1). Earlier in this session the same command worked, so this is an environment artifact this turn, not a code regression. Relied on the unit tests (which test the invariant directly) plus Step 17's E2E of the shared downstream path. Did NOT over-claim E2E in the commit message.
+
+### What I learned
+
+- The fix is tiny because the Step 17 work built the right primitive (`unwatchFile`). Close and switch are the two places `currentFile` transitions, and both now unwatch the old file — a clean symmetry that closes the watcher lifecycle.
+- Two independent symptoms from one root cause: the *stray reload* (visible UX bug) and the *leak* (resource bug) both vanish with one unwatch. That's a sign the root cause was correctly identified.
+
+### What was tricky to build
+
+- **Choosing the test seam.** The obvious test (`call openPath, check a.watched`) doesn't work because `openPath` needs a real Wails ctx. The alternative — extracting a `setCurrentFile(abs)` helper that does just the transition and is ctx-free — would be cleaner but adds a refactor beyond the fix's scope. Chose instead to have the test reproduce the exact transition sequence `openPath` performs, with a comment tying them together. If more `openPath` logic grows ctx-free, extracting the helper later is a good cleanup.
+
+### What warrants a second pair of eyes
+
+- The test reproduces the sequence but doesn't call `openPath` itself (it can't). Confirm the comment + the `openPath` code stay in sync if the transition logic moves.
+- The frontend `file-changed` listener still ignores `data.path`. With the backend fix this is benign (no stray events for non-current files), but a defense-in-depth compare is still a reasonable follow-up.
+
+### What should be done in the future
+
+- Optionally add a `data.path` compare in the frontend `file-changed` listener as defense-in-depth.
+- If `openPath` grows, extract a ctx-free `setCurrentFile(abs)` helper so the transition is directly unit-testable.
+- Re-verify E2E (open A → open B → save A → B does NOT reload) once the dev server is stable, to confirm the UX symptom is gone end to end.
+
+### Code review instructions
+
+- `app.go` `openPath`: unwatch-old-file block before `a.currentFile = abs`.
+- `openpath_test.go` (new): `TestOpenPathUnwatchesPreviousFile`, `TestOpenPathKeepsSingleWatchAcrossManyOpens`.
+- Validate: `go test -tags webkit2_41 -run TestOpenPath -v .`; (E2E, when dev server is stable) `wails dev` + Playwright: open A → open B → write to A → B must NOT reload.
+
+### Technical details
+
+- Commit (this step): `bff4d7d`.
+- Follow-up source: diary Step 17 "What should be done in the future."
+- Not a PR review comment (no Codex thread) — a self-identified follow-up the user asked to close.
