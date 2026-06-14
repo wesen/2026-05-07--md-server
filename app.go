@@ -190,6 +190,15 @@ func (a *App) openPath(path string) (string, error) {
 		return "", err
 	}
 
+	// Unwatch the previously open file before switching, so only the CURRENT
+	// file's writes emit `file-changed`. Without this, opening A then B leaves
+	// A still watched: a save to A would fire `file-changed {path:A}`, the
+	// frontend ignores data.path and calls ReopenCurrent() (re-rendering B),
+	// and every opened file leaks a goroutine + fsnotify watch for the app's
+	// lifetime. (openPath is the only place currentFile changes except Close.)
+	if old := a.currentFile; old != "" && old != abs {
+		a.unwatchFile(old)
+	}
 	a.currentFile = abs
 	a.watchFile(abs)
 	// Register the file's directory AND its ancestors (except the filesystem
