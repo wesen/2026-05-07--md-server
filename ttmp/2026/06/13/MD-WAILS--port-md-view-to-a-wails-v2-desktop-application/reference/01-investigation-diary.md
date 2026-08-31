@@ -1,0 +1,1277 @@
+---
+Title: ""
+Ticket: ""
+Status: ""
+Topics: []
+DocType: ""
+Intent: ""
+Owners: []
+RelatedFiles:
+    - Path: README.md
+      Note: Diary Steps 13-15 document the Phase 9 README rewrite
+    - Path: docs/getting-started.md
+      Note: Diary Step 14 documents the getting-started rewrite
+    - Path: docs/user-guide.md
+      Note: Diary Step 15 documents the user-guide surgery (removed HTTP/socket/daemon sections)
+ExternalSources: []
+Summary: ""
+LastUpdated: 0001-01-01T00:00:00Z
+WhatFor: ""
+WhenToUse: ""
+---
+
+
+# Investigation diary
+
+## Goal
+
+Capture the chronological investigation that produced the MD-WAILS design/implementation guide: what was read, what was learned, what the open questions are, and how a reviewer or the implementing intern should validate the analysis.
+
+## Step 1: Gather evidence from both source repos and the Wails article
+
+The task was to create a ticket that ports `md-view` to Wails v2, with an intern-grade design/implementation guide. Before writing any conclusions, I read the two provided sources end to end and mapped the existing md-view codebase.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Create a new docmgr ticket to port md-view to use wails.io. Read ~/code/wesen/2026-06-13--wails-demo/ and also /home/manuel/code/wesen/go-go-golems/go-go-parc/Projects/2026/06/13/ARTICLE - Wails v2 Desktop Applications - Technical Deep Dive.md Create a detailed analysis / design / implementation guide that is for a new intern, explaining all the parts of the system needed to understand what it is, with prose paragraphs and bullet point sand pseudocode and diagrams and api references and file references. It should be very clear and technical. Store in the ticket and the nupload to remarkable."
+
+**Assistant interpretation:** Produce a docmgr ticket (MD-WAILS) with a comprehensive, evidence-backed design+implementation guide aimed at a new intern, then deliver it to reMarkable. The guide must explain both md-view (current state) and Wails (target), map one to the other, and give a phased file-level plan.
+
+**Inferred user intent:** A reusable onboarding + implementation document that lets an unfamiliar engineer execute the port without rediscovering the architecture or the Wails sharp edges.
+
+### What I did
+
+- Read the two provided sources in full:
+  - `/home/manuel/code/wesen/2026-06-13--wails-demo` — `app.go`, `main.go`, `render.go`, `render_test.go`, `wails.json`, `go.mod`, `frontend/dist/{index.html,app.js}`, `frontend/wailsjs/go/main/App.js`.
+  - The Wails v2 deep-dive article in the Obsidian vault.
+- Read the current md-view codebase: `cmd/md-view/main.go`, `pkg/renderer/renderer.go`, `pkg/server/server.go`, `pkg/daemon/daemon.go`, `pkg/protocol/protocol.go`, `pkg/watcher/watcher.go`, `pkg/commands/{run,view,serve,status,stop}.go`, the build-tag files, the embedded `static/*` JS, `go.mod`, `Makefile`, `README.md`, `AGENT.md`.
+- Captured precise line numbers for every key symbol (via `grep -n`) so the guide's references are verifiable.
+- Added `wails`, `desktop`, `architecture` topics to the docmgr vocabulary (they were missing).
+
+### What worked
+
+- The two-source comparison made the gap analysis crisp: md-view's renderer is reusable, its process plumbing (daemon/socket/HTTP) is what Wails replaces.
+- The Wails article already documents the "menu callbacks must emit events" and `context.Context` rules, which became core guidance in the design doc.
+- `grep -n` line anchoring made file references exact and auditable.
+
+### What didn't work
+
+- Nothing failed. One thing to note: the demo's `render.go` uses `gomarkdown`+`bluemonday`, while md-view uses `goldmark`+`goldmark-highlighting`. I flagged this explicitly in the design doc (§5.3 and DR-3) so the intern does **not** copy the demo's renderer.
+
+### What I learned
+
+- md-view's `Render(filePath, opts)` is already a pure function — exactly the shape Wails needs. The only structural change is splitting it into body-fragment vs. full-page assembly (DR-3) so the WebView can own page chrome.
+- Live reload maps cleanly: `fsnotify` watcher (`pkg/watcher`, already reusable) → goroutine → `runtime.EventsEmit("file-changed")`. SSE + `reload.js` are retired.
+- Image serving is the most subtle port: `AssetServer.Handler` reuses the existing `/file/` URL scheme and allow-list (DR-5), avoiding a rewrite of `rewriteImagePaths`.
+
+### What was tricky to build
+
+- **Two communication channels.** Wails bound-method vs. event distinction is the #1 bug source. I made it a first-class section (§4.3) and a golden rule, and used events everywhere Go initiates DOM updates (menus, file drop, live reload).
+- **Asset handler semantics.** Wails calls `AssetServer.Handler` only for requests not in the embedded FS; the design relies on this to route `/file/...` without colliding with real assets. Flagged as a risk to validate.
+- **Coexistence vs. replacement.** Per `AGENT.md`'s "no backwards-compat shims without asking," I chose coexistence (DR-2): a new `wailsapp/` entry point, the CLI untouched — no adapters.
+
+### What warrants a second pair of eyes
+
+- DR-3's `RenderBody` refactor: confirm the CLI/server path still works after the split (the full-page assembler must remain callable by `pkg/server`).
+- DR-5's path handling on Windows (drive letters, leading-slash stripping in `/file/...`).
+- Whether a CSP is needed given md-view does not run Bluemonday today (open question OQ-3).
+
+### What should be done in the future
+
+- Implement the phases in order; Phase 0 (env + scaffolding) first.
+- Add a CI `wails build` job on a pinned Linux image (webkit2gtk-4.1).
+- Follow-up ticket for theme persistence and (optionally) a CSP.
+
+### Code review instructions
+
+- Start at the design doc: `design-impl-guide/01-wails-port-analysis-design-and-implementation-guide.md`.
+- Verify the gap-analysis table (§6) against the cited files/lines.
+- Spot-check 3 decision records (DR-1, DR-3, DR-5) against the actual code they reference.
+- Confirm `pkg/watcher` and `pkg/renderer` are genuinely GUI-independent (they are).
+
+### Technical details
+
+- Docmgr ticket: `ttmp/2026/06/13/MD-WAILS--port-md-view-to-a-wails-v2-desktop-application/`.
+- Vocabulary additions: `wails`, `desktop`, `architecture`.
+- Validation command before upload: `docmgr doctor --ticket MD-WAILS --stale-after 30`.
+
+## Step 2: Revise scope to a drop-in replacement (single binary) and capture sources
+
+After the v1 guide (coexistence: two binaries) was written, the user clarified the real goal: **replace** md-view entirely with a single Wails binary that is **drop-in compatible at the CLI** (`md-view view README.md` still works). This is a fundamental architecture change, not a tweak.
+
+### Prompt Context
+
+**User prompt (verbatim):** "I actually want to replace the current md-view app with this, so that it's dropin compatible CLI wise. Update the document." then "store interesting resources into th esource/ folder of the ticket so that we can reference them later on"
+
+**Assistant interpretation:** (1) Rewrite the design doc from "ship a second `md-view-desktop` binary alongside the CLI" to "one `md-view` binary that is both the CLI and the desktop app, with `view` preserved and daemon verbs removed". (2) Capture the Wails references I found into the ticket's `sources/` folder for later citation.
+
+**Inferred user intent:** A single install/distribution artifact; existing `md-view view <file>` muscle memory and scripts keep working; no daemon/socket/PID state.
+
+### What I did
+
+- Researched the Wails multi-invocation mechanism. Found that Wails v2.7.0+ has a **built-in `SingleInstanceLock`** option (no plugin) — captured its exact API from `pkg/options/options.go` into `sources/01-wails-single-instance-lock-api.md`.
+- Captured two GitHub Discussions via the REST API: Cobra+Wails coexistence (#1271) and the "one binary, CLI+GUI" use case (#3098) into `sources/02-…` and `sources/03-…`, plus a `00-sources-index.md`.
+- Rewrote the design doc (v2): new §2.2 CLI-compatibility contract; gap-analysis rows changed (daemon/socket/PID → `SingleInstanceLock`; Cobra CLI → adapted; serve/stop/status → deleted); package layout changed from a separate `wailsapp/` to a repo-root Wails project + `internal/desktop/` + deletion of `pkg/{daemon,protocol,server,commands}`; DR-2 flipped from coexistence to replacement; added DR-7 (SingleInstanceLock) and DR-8 (flag trimming); new pseudocode for `main.go` (Cobra + wails.Run + SingleInstanceLock), `OnSecondInstanceLaunch`, and `OnDomReady`; phases restructured (Phase 6 = single-instance dispatch, Phase 7 = cutover/deletion).
+- Updated tasks/changelog/index to match.
+
+### What worked
+
+- The `SingleInstanceLock` API is the clean, zero-state replacement for md-view's entire daemon+socket+PID subsystem — it forwards the 2nd process's `os.Args` directly to instance #1. This made the drop-in story concrete instead of hand-wavy.
+- GitHub raw source + Discussions API fetched cleanly; only the Cloudflare-protected `wails.io` guide pages needed to be reconstructed from the source file (more authoritative anyway).
+
+### What didn't work
+
+- `wails.io` docs are behind a Cloudflare "Just a moment…" challenge and cannot be fetched headless with curl. Worked around by taking the authoritative type definitions from the `options.go` source.
+
+### What I learned
+
+- "Drop-in CLI compatible" for a GUI app really means two things: (a) the primary verb (`view <file> [--dark]`) still works, and (b) a second invocation reuses the running app. Wails `SingleInstanceLock` gives (b) natively; Cobra-in-main.go gives (a).
+- The double-click gotcha (Discussion #1271): a bare binary launch must still open the GUI, so the Cobra root command itself must run the app — not require a subcommand.
+
+### What was tricky to build
+
+- **Entry-point tension.** go-go-golems convention is `cmd/<binary>/main.go`, but `wails build` expects `main.go` next to `wails.json`. Documented both paths (repo-root `main.go`, or `cmd/md-view/main.go` via `wails generate module` + manual `go build`) and flagged it as a Phase-0 resolution (DR-2).
+- **Second-instance timing.** `OnSecondInstanceLaunch` can fire before the first instance's DOM is ready; the file must be buffered in `PendingOpen` and opened in `OnDomReady`. Captured in the pseudocode and risks.
+
+### What warrants a second pair of eyes
+
+- DR-2's entry-point choice and whether moving off `cmd/md-view/main.go` is acceptable to the project conventions.
+- DR-8's flag-trimming: confirm removing `--port`/`--browser` won't break known user scripts (or keep `--no-reload` as a no-op).
+- The `serve`/`stop`/`status` removal — verify nothing in CI or docs depends on them.
+
+### What should be done in the future
+
+- Execute Phases 0–8; the cutover (Phase 7) is the irreversible step.
+- Add a CI `wails build` job on a pinned webkit2gtk-4.1 image.
+
+### Code review instructions
+
+- Diff the v2 design doc against v1: the changed sections are §1, §2, §6 rows, §7.1, DR-1/2/3, new DR-7/8, §9.1/9.2/9.3, §10 phases 6/7, §12, §13.
+- Verify the `SingleInstanceLock` API in `sources/01-…` matches what the pseudocode uses.
+- Confirm the deletion list (Phase 7) is complete: `pkg/daemon`, `pkg/protocol`, `pkg/server`, `pkg/commands`, `cmd/md-view/main.go`.
+
+### Technical details
+
+- Sources stored at `sources/{00-sources-index,01-wails-single-instance-lock-api,02-wails-cobra-integration-discussion-1271,03-wails-cli-with-app-discussion-3098}.md`.
+- `SingleInstanceLock` added in Wails v2.7.0; demo pins v2.12.0 → satisfied.
+
+## Step 3: Phase 0 — scaffold the Wails app and open a window
+
+With the design locked as a drop-in replacement, work began on the actual codebase. Phase 0's goal was narrowly scoped: get a native window to open from `wails dev`, with the bound `App` struct in place, so every later phase has a running surface to build on. The renderer, menus, and single-instance lock all come later.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Add detailed tasks to the ticket, then work on them one by one, keeping a detailed diary as you work, and committing at appropriate intervals. (see skills if needed)"
+
+**Assistant interpretation:** Turn the design doc's phase plan into an atomic, checkable task list, then execute the phases in order — implementing, verifying, diary-updating, and committing at each checkpoint.
+
+**Inferred user intent:** Move from design to working software, with an auditable trail (diary) and clean git history (per-phase commits).
+
+### Environment check (before scaffolding)
+
+- Wails CLI **v2.12.0** already installed at `/home/manuel/go/bin/wails` (≥ v2.7.0 → `SingleInstanceLock` available).
+- `webkit2gtk-4.1` and `libsoup-3.0` **present** (pkg-config); webkit2gtk-4.0 absent (fine, we target 4.1).
+- Go **1.26.3**.
+
+So Phase 0's install steps were already satisfied; only scaffolding remained.
+
+### What I did
+
+- Wrote a detailed atomic `tasks.md` (Phase 0–8, each with sub-items and a commit checkpoint).
+- **Layout decision (deviation from design doc §7.1):** the design proposed `internal/desktop/` for the bound `App`. Wails generates the JS binding namespace from the *package name*, and `internal/...` packages produce awkward/hard-to-predict namespaces. To keep the demo's proven `window['go']['main']['App']` namespace (so the copied frontend works unchanged), the bound `App` lives in **`package main` at the repo root**. Pure testable helpers (CLI arg parsing, path checks) will go in `internal/desktop` later. This is layering, not an adapter.
+- Created the repo-root Wails project: `wails.json` (outputfilename `md-view`, empty frontend build/install — vanilla JS), `main.go` (`wails.Run` + `//go:embed all:frontend/dist`), `app.go` (stub `App` with `Startup`/`Shutdown` + stub bound methods: `OpenFile`, `OpenFileAtPath`, `GetCurrentFile`, `GetRecentFiles`, `ToggleTheme`, `GetTheme`, `OnFileDrop`).
+- Copied the demo's `frontend/dist/{index.html,app.js,style.css,chroma.css}` as the shell.
+- `go get github.com/wailsapp/wails/v2@v2.12.0` + `go mod tidy`. Note: tidy prunes Wails if nothing imports it — had to write `main.go` (which imports wails) *before* tidy, else wails gets removed.
+- Fixed a `.gitignore` collision: the bare `dist/` rule (for GoReleaser output) was silently ignoring `frontend/dist/`. Re-anchored it to `/dist/` (root build output only).
+
+### Why
+
+- A stub-with-window first proves the toolchain end-to-end (embed, bindings, WebView) before any rendering logic is added. Failures here are cheap to find.
+- Rooting the Wails project at the repo root (rather than a subdir) matches the demo exactly and keeps the final "single `md-view` binary" story simple (`go build .` / GoReleaser root).
+
+### What worked
+
+- `wails dev -tags webkit2_41` compiled, generated bindings, packaged, and opened a window; DevServer on `http://localhost:34115`; "Serving assets from disk: …/frontend/dist".
+- The generated `frontend/wailsjs/go/main/App.js` confirms the namespace is `window['go']['main']['App']` with all 8 stub methods bound — the copied frontend's calls will resolve.
+- Both binaries coexist during transition: `go build -tags webkit2_41 .` (new Wails app) and `go build ./cmd/md-view` (old CLI) both succeed — no package conflict from having two `main` packages.
+
+### What didn't work
+
+- **`go mod tidy` removed Wails on the first run** because no Go file imported it yet. Fix: author the importing `main.go` first, then tidy. Obvious in hindsight; recorded so it isn't repeated.
+- **`frontend/dist/` was invisible to git** due to the `dist/` ignore rule. Found via `git check-ignore -v`.
+
+### What I learned
+
+- Wails dev regenerates `frontend/wailsjs/` on every run — correctly gitignored (`/frontend/wailsjs/`) to avoid churn.
+- Two `main` packages (root + `cmd/md-view`) compile together cleanly; the cutover (Phase 7) simply deletes the old one.
+
+### What was tricky to build
+
+- The `.gitignore` `dist/` shadowing was non-obvious — `git status` just silently omitted `frontend/`, which would have meant committing a broken app (no frontend assets) if not caught. The root-anchor (`/dist/`) is the surgical fix that preserves the GoReleaser-output ignore.
+
+### What warrants a second pair of eyes
+
+- The decision to keep the bound `App` in `package main` at root (vs `internal/desktop` as the design proposed). It trades a namespace-predictability guarantee for slightly less tidy packaging; confirm this is acceptable, or move `App` into a non-`internal` subpackage (e.g. `pkg/desktop`) later — that still gives a clean `window.go.desktop.App` namespace and testability.
+- The `.gitignore` `/dist/` change — verify GoReleaser/install still output to the right place.
+
+### What should be done in the future
+
+- Revisit package layout if `package main` root grows unwieldy.
+- The stub `App` methods must be implemented in Phases 1, 3, 5, 6.
+
+### Code review instructions
+
+- Start at repo root: `main.go` (embed + `wails.Run`), `app.go` (stub `App`), `wails.json`.
+- Validate: `wails dev -tags webkit2_41` opens a window; `frontend/wailsjs/go/main/App.js` lists the 8 bound methods.
+- Confirm `.gitignore` line 18 is now `/dist/` and `frontend/dist/index.html` is tracked.
+
+### Technical details
+
+- Commit (this step): see `git log` for "feat(MD-WAILS): scaffold Wails v2 app (Phase 0)".
+- `wails dev` build tag: `-tags webkit2_41` (webkit2gtk-4.1 present, 4.0 absent).
+- Embed: `//go:embed all:frontend/dist` in `main.go`.
+
+## Step 4: Phase 1 — RenderBody refactor + wire the renderer to the window
+
+Phase 1's goal was to make the Wails window actually render a Markdown file, by reusing md-view's existing Goldmark renderer through a new fragment-returning `RenderBody`, and wiring it to a bound `App.openPath`.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 3 — "Add detailed tasks … work on them one by one, keeping a detailed diary … committing at appropriate intervals.")
+
+**Assistant interpretation:** Execute Phase 1 of the task list: refactor `pkg/renderer` to expose a chrome-free body fragment, keep the legacy full-page `Render` delegating to it (so `pkg/server` keeps compiling until the Phase 7 cutover), and make `App.OpenFile`/`OpenFileAtPath` render a real file.
+
+**Inferred user intent:** Prove the renderer→Wails-bridge data path end to end (the core of the whole port) before adding styling, live reload, and the single-instance CLI dispatch.
+
+### What I did
+
+- **Added `BodyHTML` + `RenderBody`** to `pkg/renderer/renderer.go`. `RenderBody(filePath, opts) (*BodyHTML, error)` returns `{Frontmatter, Body, Title}` — the read→frontmatter→Goldmark→`rewriteImagePaths`→title core, with no `<html>`/`<head>`/CSS/`<script>`.
+- **Refactored `Render`** to be a thin assembler over `RenderBody` (it calls it, then wraps the fragment with page chrome). This keeps `pkg/server` (the only `Render` consumer) compiling through the transition, per DR-3.
+- **Added 2 `RenderBody` tests** (`TestRenderBody`, `TestRenderBodyWithFrontmatter`) covering title resolution, body content, the "no page chrome" invariant, and frontmatter formatting.
+- **Wired `App.OpenFile`/`OpenFileAtPath`/`openPath`** in `app.go`: native file dialog (`runtime.OpenFileDialog`) → `renderer.RenderBody` → set `currentFile` + `runtime.WindowSetTitle` → return `frontmatter + "\n" + body` as the HTML string. Kept the return type as `string` (not the design's `FileResult` struct) to stay compatible with the copied demo frontend, which does `.then(html => showContent(html))`. `FileResult` can be introduced later if the frontend is upgraded.
+- **Verified end to end** via `wails dev`'s browser mode + Playwright: navigated to `http://localhost:34115`, polled for `window.go.main.App` readiness, called `OpenFileAtPath('/tmp/md-view-test.md')`, and asserted the returned HTML contained `<h1>Hello md-view</h1>`, `<strong>bold</strong>`, `<table>`, and `chroma` classes. All passed.
+
+### Why
+
+- Splitting `Render` into `RenderBody` + assembler is the linchpin of DR-3: the WebView owns page chrome (stable `index.html`), and only the content fragment is swapped per file. This makes theme toggling, Mermaid re-init, and asset caching far simpler than full-page reloads.
+- Keeping `Render` delegating (rather than deleting it) lets `pkg/server` keep compiling during the transition, so `go build ./...` and `go test ./...` stay green until the Phase 7 cutover deletes `pkg/server`.
+
+### What worked
+
+- All 8 renderer tests green after the refactor (6 existing `Render`-based + 2 new `RenderBody`); the refactor was behavior-preserving for `Render`.
+- `gofmt` clean; `go build -tags webkit2_41 ./...` builds the new root main, the old `cmd/md-view`, and all packages together — the two-`main` coexistence still holds.
+- Wails dev browser mode is an excellent verification tool: it exposes bound Go methods at `window.go.main.App.*` over HTTP, so I can drive the app from Playwright without simulating native dialog clicks.
+
+### What didn't work
+
+- **First refactor edit failed** ("Could not find edits[0]"): I mistyped the Goldmark options block's closing-paren nesting in the `oldText`. Fixed by re-reading the exact bytes with `sed -n | cat -A` (tabs show as `^I`) and reconstructing the `oldText` precisely. Lesson: for multi-line Go edits with nested calls, always source the exact whitespace from `cat -A` rather than transcribing by eye.
+- Minor: `favicon.ico` 404 in the console (no favicon served). Harmless; deferred to a later cleanup.
+
+### What I learned
+
+- `rewriteImagePaths`'s `port` parameter is genuinely unused (it builds port-independent `/file/...` URLs) — confirmed by reading the body, so `RenderBody` passes `opts.Port` through purely for `Options` API compatibility. This matters for Phase 4 (image serving needs no port).
+- The Wails binding contract for a `(string, error)` Go method is a JS `Promise<string>`; the demo frontend already consumes it as a plain string. Changing the return to a struct would require regenerating bindings and updating the frontend — deferred.
+
+### What was tricky to build
+
+- **Preserving `Render`'s exact output while extracting its core.** The title resolution and frontmatter formatting lived mid-function in `Render`; moving them into `RenderBody` required updating every downstream reference in `Render` (`title`, `fmHTML`, `renderedHTML` → `body.Title`, `body.Frontmatter`, `body.Body`). Verified by the unchanged `Render` tests passing.
+- **The edit-tool whitespace sensitivity.** Documented above.
+
+### What warrants a second pair of eyes
+
+- The decision to return a plain `string` from `OpenFile`/`OpenFileAtPath` (vs the design's `FileResult{HTML,Path,Title}`). It works and matches the frontend today, but if we later want path/title without extra round-trips, `FileResult` is better. Acceptable to evolve.
+- `Render` is now a thin assembler kept alive only for `pkg/server`. Confirm we still want it deleted at cutover (Phase 7) vs. kept as an `ExportHTML` helper.
+
+### What should be done in the future
+
+- Phase 2: swap the demo's `style.css`/`chroma.css` for md-view's `base.css` + generated dual-theme Chroma CSS so content looks like the real md-view.
+- Add a favicon (or a 204 handler) to silence the console 404.
+
+### Code review instructions
+
+- `pkg/renderer/renderer.go`: `BodyHTML` + `RenderBody` (new), `Render` (now delegates).
+- `pkg/renderer/renderer_test.go`: `TestRenderBody`, `TestRenderBodyWithFrontmatter` (new).
+- `app.go`: `OpenFile`, `OpenFileAtPath`, `openPath` (implemented).
+- Validate: `go test ./pkg/renderer -count=1`; `wails dev -tags webkit2_41` then call `window.go.main.App.OpenFileAtPath('/tmp/md-view-test.md')` in the browser.
+
+### Technical details
+
+- Commit (this step): see `git log` for "feat(MD-WAILS): RenderBody refactor + wire renderer to window (Phase 1)".
+- Verification artifact: `.playwright-mcp/phase1-render.png` (gitignored).
+
+## Step 5: Phase 2 — assets, dual-theme Chroma CSS, augmentation
+
+Phase 2 made the rendered content look like the real md-view (GitHub styling, dual-theme syntax highlighting) and wired the Mermaid + copy-button augmentation to re-run after each content swap — a necessity in the Wails fragment model (only `#content` changes; scripts don't re-execute).
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 3 — work through the tasks, diary, commit.)
+
+**Assistant interpretation:** Execute Phase 2: copy md-view's static assets into the frontend, generate the dual-theme Chroma CSS at build time, link everything, and make Mermaid + copy buttons work on dynamically-swapped content.
+
+**Inferred user intent:** Feature parity with md-view's visual output (styling, dark mode, diagrams, copy buttons) inside the desktop window.
+
+### What I did
+
+- Copied `base.css`, `dark.css`, `mermaid.min.js`, `mermaid-init.js`, `copy-button.js` from `pkg/renderer/static/` into `frontend/dist/`.
+- **DR-4 generator:** created `cmd/gen-chroma-css` that writes `frontend/dist/chroma.css` (dual-theme: github light + dracula dark prefixed with `[data-theme="dark"]`) AND `frontend/dist/ui.css` (md-view's in-page UI chrome — frontmatter block, copy/reMarkable/toolbar buttons — via a new public `renderer.UICSS()` wrapper around the existing `themeCSS`). Added `make frontend-css`.
+- Added `renderer.UICSS()` (public) returning `themeCSS(false)` (which already includes light + dark overrides).
+- **`augment.js`:** ported `copy-button.js` + `mermaid-init.js` into idempotent, re-runnable functions exposed as `window.MDSAugmentPage()` (copy buttons + mermaid render) and `window.MDSMermaidRerender(theme)` (re-render diagrams on theme change). Idempotency guards prevent double-wrapping.
+- Updated `index.html` to link `style.css` (app chrome) + `base.css` + `chroma.css` + `ui.css` + `dark.css`, and load `mermaid.min.js` + `augment.js` + `app.js`.
+- Updated `app.js`: `applyTheme` now sets `data-theme` on **both** `<html>` and `<body>` (md-view's CSS targets `[data-theme="dark"]` on an ancestor) and calls `MDSMermaidRerender`; `showContent` calls `MDSAugmentPage()` after every content swap.
+
+### Why
+
+- The daemon model ran augmentation IIFEs once per full page load. The Wails model keeps page chrome stable and swaps only `#content`, so augmentation must be callable repeatedly — hence `augment.js`.
+- Generating CSS once (vs. per render) is DR-4: deterministic, cacheable, and it lets the renderer's `ChromaCSSBoth`/`UICSS` helpers produce static assets instead of being inlined on every `Render`.
+
+### What worked
+
+- Verified end-to-end via `wails dev` browser mode + Playwright against `/tmp/md-view-phase2.md` (frontmatter + go code + mermaid + table): frontmatter details block present, 1 copy button (after a guard to skip `language-mermaid`), mermaid rendered to **SVG**, all correct.
+- **Theme toggle verified by computed style:** light keyword `rgb(207,34,46)` / code bg `#f6f8fa` vs dark keyword `rgb(255,121,198)` / bg `#161b22` — both color and background flip. A fresh-backend screenshot pair (light + dark via the real theme button) confirmed GitHub styling, Mermaid diagrams, and readable contrast in both themes.
+- All renderer tests green; `go build -tags webkit2_41 ./...` clean; `make frontend-css` regenerates both CSS files.
+
+### What didn't work
+
+- **First `applyTheme` test showed "no color change":** I only set `data-theme` on `<html>`, but `<body>` retained the stale `dark` value from a prior toggle, so the dark CSS kept matching via the body. Fix: `applyTheme` sets **both** elements. This is a real invariant — document it: the data-theme attribute must be consistent on whatever element(s) the CSS targets as ancestors.
+- **Vision QA flagged "copy button not visible":** that's by design — `.md-view-copy-btn { opacity: 0 }`, revealed on `.md-view-code-container:hover` (inherited from the original md-view). A static screenshot can't show a hover-revealed control; the DOM (count=1) and base.css confirm it's correct.
+- **Screenshot showed dark when light was expected (once):** a `wails dev` hot reload re-ran `app.js` init, which called `GetTheme()` → the backend's persisted `dark` → reverted my manual light override. Restarting dev for a clean backend fixed it. Lesson: when testing theming through the dev server, remember backend `App` state persists across browser reloads.
+
+### What I learned
+
+- Chroma token classes for Go are subtypes (`kn` keyword-namespace, `kd` keyword-declaration, `nx`, `s`, …), not bare `.k` — a `.chroma .k` selector matches nothing; use `.kn`/`.kd` to probe. The dual-theme CSS itself is fine.
+- `themeCSS(dark bool)` ignores its `dark` parameter — it always returns light + darkOverrides concatenated. So `UICSS() = themeCSS(false)` gives both themes; the param is vestigial.
+
+### What was tricky to build
+
+- **Augmentation ordering:** `initCopyButtons` ran before `initMermaid`, so the mermaid code block got a copy button before being converted to a diagram. Fixed by skipping `language-mermaid` code blocks in `initCopyButtons`. Without this, a stray copy button sat next to each diagram.
+- **data-theme placement & consistency** (documented above).
+
+### What warrants a second pair of eyes
+
+- The `applyTheme` dual-attribute (`html` + `body`) set: confirm this is acceptable vs. picking one canonical element (md-view's full-page `Render` set it on `<html>` only). Both work as long as consistent; setting both is defensive.
+- Whether `ui.css` (generated from `themeCSS`) is the right home for the button chrome, or whether those rules should migrate into `base.css`/`dark.css` and `UICSS`/`themeCSS` be retired.
+
+### What should be done in the future
+
+- Phase 3: live reload (watcher → `file-changed` event → `ReopenCurrent()` → re-augment). The `MDSAugmentPage` re-run hook is already in place.
+- Consider adding a favicon handler to silence the console 404.
+
+### Code review instructions
+
+- `pkg/renderer/renderer.go`: new `UICSS()`.
+- `cmd/gen-chroma-css/main.go`: writes `frontend/dist/{chroma,ui}.css`.
+- `Makefile`: `frontend-css`, `wails-dev`, `wails-build` targets.
+- `frontend/dist/{index.html,app.js,augment.js,base.css,dark.css,chroma.css,ui.css,mermaid.min.js,copy-button.js}`.
+- Validate: `make frontend-css`; `wails dev -tags webkit2_41`; render `/tmp/md-view-phase2.md`; toggle theme.
+
+### Technical details
+
+- Commit (this step): see `git log` for "feat(MD-WAILS): assets, dual-theme Chroma CSS, augmentation (Phase 2)".
+- Verification artifacts: `phase2-light-clean.png`, `phase2-dark-clean.png` (gitignored, in repo root).
+
+## Step 6: Phase 3 — live reload via Wails events (replaces SSE)
+
+Phase 3 restored the "edit the file, the view refreshes" behavior without any HTTP/SSE. The existing `pkg/watcher` (fsnotify) is reused; a goroutine translates each write into a Wails `file-changed` event; the frontend calls `ReopenCurrent()` and swaps the content.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 3 — work through the tasks, diary, commit.)
+
+**Assistant interpretation:** Execute Phase 3: wire `pkg/watcher` into `App.Startup`, emit `file-changed` per watched file, add a `ReopenCurrent` bound method, and have `app.js` listen and re-render.
+
+**Inferred user intent:** Feature parity with the daemon model's SSE live reload, but in-process and event-driven.
+
+### What I did
+
+- Added `watcher *watcher.FileWatcher`, `mu sync.Mutex`, and `watched map[string]struct{}` to `App`. `Startup` creates + starts the watcher; `Shutdown` closes it. Duplicate watches are skipped.
+- `openPath` now calls `a.watchFile(abs)` after setting `currentFile`.
+- Added `events.go` with `watchFile(abs)`: registers the path with `watcher.Watch` (once) and spawns a goroutine that ranges over its `<-chan struct{}` and calls `runtime.EventsEmit(a.ctx, "file-changed", {path})`.
+- Added the `ReopenCurrent() (string, error)` bound method: re-renders `currentFile` via `openPath` (returns `""` if none open).
+- Added a `file-changed` listener in `app.js` that calls `ReopenCurrent()` and `showContent(html)` (which re-runs augmentation).
+- Structured logging via `logcopter.Package("md-view.desktop")` as `logger` (named to avoid clashing with stdlib `log` used in `main.go` for fatal-on-startup).
+
+### Why
+
+- The daemon model pushed reloads over an SSE `/events` stream; the file watcher fanned events to all SSE clients. In a single-process Wails app there's no HTTP, so the watcher → Wails event → bound-method path is the direct equivalent, with no network hop.
+- Reusing `pkg/watcher` unchanged keeps the cutover (Phase 7) smaller.
+
+### What worked
+
+- Verified end to end via `wails dev` browser mode + Playwright: opened `/tmp/md-view-reload.md` (H1 "Original Title", first line), appended `## Edited section\n\nEDITED_LIVE_RELOAD_MARKER …` to the file on disk, and `wait_for("EDITED_LIVE_RELOAD_MARKER")` succeeded. The post-edit DOM had the new `<h2>Edited section</h2>` and the marker, while the original H1 + first line were preserved (a content swap, not a full reload).
+- gofmt clean; `go build -tags webkit2_41 ./...` ok; `go test ./...` green.
+
+### What didn't work
+
+- **`var log` collided with stdlib `log`** (imported by `main.go` for `log.Fatal` on startup error): `./events.go:9:5: log already declared through import of package log`. Fixed by naming the logcopter logger `logger` instead. A package can't have both a `var log` and an imported `"log"`; the convention here is `logger` for the zerolog instance, `log` for stdlib.
+- The first batched edit to rename `log`→`logger` partially failed (edits targeting `app.go` were in the `events.go` call) — a copy/paste error in my edit targeting. Re-scoped to one file per concern and it applied cleanly.
+- The Wails window was closed mid-session by the user; closing the window exits the app (tmux session gone) — expected desktop behavior. Verification had already completed before the close.
+
+### What I learned
+
+- Closing the main Wails window terminates the process (no tray-by-default). Relevant for Phase 6's single-instance story: when instance #1's window closes, the app exits, so a subsequent `md-view view` correctly starts fresh (no lingering instance) — `SingleInstanceLock` will simply not find a lock.
+- `watcher.Watch` is idempotent-enough to call per openPath, but `fsnotify.Add` on an already-watched path is a no-op that still returns a *new* channel per `Watch` call — hence the `watched` set guard to avoid spawning duplicate goroutines.
+
+### What was tricky to build
+
+- **The `var log` vs stdlib `log` clash** is the kind of thing that only surfaces at compile across two files in the same package. Documented so Phase 5/6 additions use `logger` consistently.
+- Ensuring the watcher goroutine doesn't leak: it exits when the channel closes (`watcher.Close` in `Shutdown`), and the `watched` set prevents duplicates.
+
+### What warrants a second pair of eyes
+
+- The `watched` map never has entries removed (files stay watched for the app's lifetime). Acceptable for a single-window viewer; if multi-file/multi-tab is added later, eviction on close would be needed.
+- Live reload only fires for the *currently open* file's path (the frontend compares `data.path`); opening file B stops updates for file A until A is reopened. Confirm this matches expectations (it mirrors the daemon model, which watched the file in the active tab).
+
+### What should be done in the future
+
+- Phase 4: image serving (`AssetServer.Handler` + allow-list).
+- Add a favicon handler to clear the recurring 404.
+
+### Code review instructions
+
+- `app.go`: new fields (`watcher`, `mu`, `watched`), `Startup`/`Shutdown` watcher lifecycle, `openPath` calls `watchFile`, new `ReopenCurrent` bound method.
+- `events.go` (new): `watchFile` → goroutine → `EventsEmit("file-changed")`.
+- `frontend/dist/app.js`: `file-changed` listener → `ReopenCurrent()` → `showContent`.
+- Validate: `wails dev -tags webkit2_41`; open a file; append to it on disk; the window updates within ~1s.
+
+### Technical details
+
+- Commit (this step): see `git log` for "feat(MD-WAILS): live reload via Wails events (Phase 3)".
+- Event name: `file-changed`; payload `{path string}`.
+
+## Step 7: Phase 4 — image serving via AssetServer.Handler + allow-list (DR-5)
+
+Phase 4 made relative Markdown images (`![](images/x.png)`) render in the window, by answering the `/file/<abs>` URLs that `renderer.rewriteImagePaths` already emits, through a Wails `AssetServer.Handler` backed by an allow-list.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 3 — work through the tasks, diary, commit.)
+
+**Assistant interpretation:** Execute Phase 4: implement `App.ServeReferencedFile` + an `allowedDirs` allow-list mirroring `pkg/server.handleFileServing` (server.go:418), and wire it as the Wails `AssetServer.Handler`.
+
+**Inferred user intent:** Images in rendered Markdown load from the open file's directory, with the same path-traversal protection as the daemon model.
+
+### What I did
+
+- Added `allowedDirs map[string]struct{}` to `App`; `openPath` calls `addAllowedDir(filepath.Dir(abs))` on open (mirrors server.go:286-294).
+- Created `assets.go` with `addAllowedDir`, `isAllowed` (prefix check with `+filepath.Separator` to avoid `/tmp/foo` authorizing `/tmp/foobar`), and `ServeReferencedFile` (the `AssetServer.Handler`): serves `/file/<abs>` requests via `http.ServeContent` after the allow check; non-`/file/` → 404; disallowed → 403.
+- Wired `Handler: http.HandlerFunc(app.ServeReferencedFile)` into `main.go`'s `AssetServer.Options`.
+
+### Why
+
+- `renderer.rewriteImagePaths` already rewrites relative `<img src>` to `/file/<abs-path>` (port-independent — confirmed in Phase 1). Reusing that scheme means zero renderer change; only the *responder* for `/file/...` moves from `pkg/server` to `App`.
+- The allow-list is the security boundary: only directories of opened files (and their ancestors, in the daemon model) may be read. Kept the same check to preserve the trust model.
+
+### What worked
+
+- Verified end to end via `wails dev` browser mode + Playwright against `/tmp/md-img-test/README.md` (with `images/diagram.png`): the renderer rewrote `src` to `/file/tmp/md-img-test/images/diagram.png`; `fetch(src)` returned **200**; a traversal `fetch('/file/etc/passwd')` returned **403**. Both the happy path and the security guard pass.
+- gofmt clean; `go build -tags webkit2_41 ./...` ok; `go test ./...` green.
+
+### What didn't work
+
+- **First wire attempt: `Handler: app`** — `*App` doesn't implement `http.Handler` (no `ServeHTTP`). Fix: `Handler: http.HandlerFunc(app.ServeReferencedFile)`. Cleaner than bolting `ServeHTTP` onto `App`.
+- **Import scoping:** I initially added `net/http`/`os`/`strings` to `app.go`, but those are used in `assets.go` (where the handler lives), leaving them unused in `app.go`. Reverted `app.go`'s imports to its actual usage; `assets.go` owns its own imports. One package, multiple files — imports are per-file in Go, which I momentarily forgot.
+
+### What I learned
+
+- Wails' `assetserver.Options.Handler` is an `http.Handler` consulted only for requests the embedded `Assets` (`embed.FS`) can't satisfy. So `/file/...` reaches our handler, while `/app.js`, `/style.css`, etc. are served from `embed.FS` first — no collision risk with frontend asset names (as long as none is named under `/file/`).
+- `http.ServeFile` redirects to "clean" the URL, breaking absolute paths with a leading slash; `http.ServeContent` does not. Same choice the daemon made (server.go comment).
+
+### What was tricky to build
+
+- **The `+filepath.Separator` detail in `isAllowed`** is the difference between "safe" and "directory-confusion vulnerable": `strings.HasPrefix("/tmp/foobad", "/tmp/foo")` is true without the separator. The daemon had this right; preserved exactly.
+- Per-file imports in a multi-file package (documented above).
+
+### What warrants a second pair of eyes
+
+- The allow-list grows monotonically (no eviction). For a single-window viewer this is fine; if multi-file is added, evict on close.
+- Symlinks: `isAllowed` checks the *requested* path, not `filepath.EvalSymlinks`. The daemon model had the same limitation. A symlink inside an allowed dir pointing outside would currently be followed. Documented as a follow-up; acceptable parity for now.
+
+### What should be done in the future
+
+- Harden with `filepath.EvalSymlinks` before the allow check if the threat model demands it.
+- Phase 5: menus, drag-and-drop, recent files, window title.
+
+### Code review instructions
+
+- `assets.go` (new): `addAllowedDir`, `isAllowed`, `ServeReferencedFile`.
+- `app.go`: `allowedDirs` field, `openPath` calls `addAllowedDir`.
+- `main.go`: `Handler: http.HandlerFunc(app.ServeReferencedFile)`.
+- Validate: `wails dev -tags webkit2_41`; open a file with a relative image; the image renders; `fetch('/file/etc/passwd')` → 403.
+
+### Technical details
+
+- Commit (this step): see `git log` for "feat(MD-WAILS): image serving via AssetServer.Handler (Phase 4)".
+- Handler type: `http.Handler`; adapter: `http.HandlerFunc`.
+
+## Step 8: Phase 5 — menus, drag-and-drop, recent files, window title
+
+Phase 5 added the desktop app's interaction surface: a native menu bar (File→Open/Close, View→Toggle Theme) that emits events, drag-and-drop file opening, and persistent recent-files. The window title was already set in `openPath` (Phase 1).
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 3 — work through the tasks, diary, commit.)
+
+**Assistant interpretation:** Execute Phase 5: build the menu (event-emitting), implement `OnFileDrop`, add recent-files JSON persistence, and confirm `WindowSetTitle`.
+
+**Inferred user intent:** A first-class desktop UX (menus, shortcuts, drag-drop, remembered files) matching the demo and replacing the browser-tab experience.
+
+### What I did
+
+- `menu.go` — `buildMenu(app)`: File→Open… (Ctrl/Cmd-O) calls `app.OpenFile()` and emits `file-opened` (or `file-error`); File→Close (Ctrl/Cmd-W) emits `close-file`; View→Toggle Theme (T) calls `app.ToggleTheme()` and emits `theme-changed`. Follows the "menu callbacks emit events" golden rule (Go can't touch the DOM).
+- `recent.go` — recent-files persistence ported from the demo: `configPath` (`os.UserConfigDir()/md-view`), `loadRecentFiles`/`saveRecentFiles` (JSON array), `pushRecent` (prepend, dedup, cap 10), `isMarkdownExt`.
+- `app.go` — `Startup` calls `loadRecentFiles()`; `Shutdown` calls `saveRecentFiles()` then closes the watcher; `openPath` calls `pushRecent(abs)`; added `currentFileTitle()`; implemented `OnFileDrop(_, _, paths)` (picks first `.md`, `openPath`, emits `file-opened`).
+- `main.go` — wired `Menu: buildMenu(app)` and `DragAndDrop: &options.DragAndDrop{EnableFileDrop: true}`.
+
+### Why
+
+- Menus and drag-drop are the two ways users open files without typing a path; both must route through the same `openPath` → `file-opened` event path as the toolbar Open button, so the frontend has one DOM-update path.
+- Recent-files persistence replaces the daemon's PID/port/socket state files with one tiny JSON under the XDG config dir — the same pattern the demo proved.
+
+### What worked
+
+- Verified recent-files end-to-end via `wails dev` browser mode + Playwright: opened two files via `OpenFileAtPath`; `GetRecentFiles()` returned both, most-recent-first (`/tmp/md-view-phase2.md` then `/tmp/md-view-reload.md`). Stopping the dev server (Ctrl-C → `Shutdown`) wrote `~/.config/md-view/recent.json` = `["/tmp/md-view-phase2.md","/tmp/md-view-reload.md"]`. Persistence round-trips (load on next Startup).
+- gofmt clean; `go vet` clean; build + tests green.
+- The frontend's existing `loadRecentFiles()` (calls `GetRecentFiles()`, renders the sidebar, re-runs on every `showContent`) already consumes the Go list — no frontend change needed for the sidebar.
+
+### What didn't work
+
+- Nothing failed. One note: `document.title` stays "md-view" in the **browser** dev mode — `runtime.WindowSetTitle` sets the *native window* title, not the browser tab, so it's only visible in the real desktop window (or `wails build`), not Playwright-on-browser. Not a bug; just a verification limitation.
+
+### What I learned
+
+- The menu, the toolbar, drag-drop, and recent-files clicks all funnel through `openPath` + the `file-opened` event. Keeping that single chokepoint is what made Phase 5 small — adding new entry points just means calling `openPath` and emitting the event.
+- `os.UserConfigDir()` is cross-platform (XDG on Linux, `~/Library/Application Support` on macOS, `%AppData%` on Windows), so recent-files land in the right place per OS without `#ifdef`.
+
+### What was tricky to build
+
+- **Menu callback → DOM gap:** the natural mistake is to call `app.OpenFile()` in the menu callback and expect the UI to update. It won't — the result lives in Go. The demo's pattern (emit `file-opened` with `{html,path,title}`) is mandatory; reproduced exactly.
+- Remembering that `saveRecentFiles` only runs on `Shutdown` — so the JSON isn't on disk until the app quits cleanly. Verified by stopping the dev server and reading the file afterward.
+
+### What warrants a second pair of eyes
+
+- `OnFileDrop` silently returns on a non-`.md` drop (no error event). Acceptable, but consider emitting a `file-error` ("not a markdown file") if UX wants feedback.
+- Recent files are saved only on shutdown; a crash loses the session. Consider saving after each `pushRecent` if durability matters (cheap write).
+
+### What should be done in the future
+
+- Phase 6: the single-instance CLI dispatch (`SingleInstanceLock` + Cobra `view`) — the core of drop-in compatibility.
+- Persist the theme preference alongside recent files (open question OQ-2).
+- Add a favicon handler to clear the 404.
+
+### Code review instructions
+
+- `menu.go` (new): `buildMenu`.
+- `recent.go` (new): config path + load/save/push + `isMarkdownExt`.
+- `app.go`: `Startup`/`Shutdown` recent lifecycle, `openPath` → `pushRecent`, `currentFileTitle`, `OnFileDrop`.
+- `main.go`: `Menu` + `DragAndDrop` options.
+- Validate: open two files; `~/.config/md-view/recent.json` appears on quit and reloads next start.
+
+### Technical details
+
+- Commit (this step): see `git log` for "feat(MD-WAILS): menus, drag-drop, recent files (Phase 5)".
+- Config dir: `os.UserConfigDir()/md-view`; file: `recent.json`.
+
+## Step 9: Phase 6 — Cobra `view` command + SingleInstanceLock (drop-in CLI)
+
+Phase 6 made `md-view view README.md` actually work as a desktop command. The CLI/drop-in contract is satisfied and verified; the single-instance *dedup* did not engage on this Linux/D-Bus setup, and the user confirmed multiple windows are acceptable, so that is recorded as a known limitation rather than a blocker.
+
+### Prompt Context
+
+**User prompt (verbatim):** "continue" — then later "it's fine if there are multiple windows. anything to commit? this is worth writing up in your diary if necessary, and then continue. I also sadly closed both instances."
+
+**Assistant interpretation:** Implement Phase 6 (Cobra `view` + `SingleInstanceLock` + `OnDomReady` pending-file open), verify the drop-in CLI, and honestly document whatever does/doesn't work. Commit and proceed.
+
+**Inferred user intent:** The single hard requirement is `md-view view <file>` opening the rendered file (drop-in compatibility); dedup-to-one-window is nice-to-have but not required.
+
+### What I did
+
+- `cli.go` — `ParseViewArgs(args) ViewArgs` (pure): tolerantly parses `md-view [view] <file> [--dark]`, treating the first non-flag/non-`view` token as the file. Returns `{File, Dark}`. Cwd-agnostic (the 2nd-instance path carries `WorkingDirectory`).
+- `cli_test.go` — 8 table-driven cases for `ParseViewArgs` (bare shorthand, explicit verb, dark before/after, dark-only, no-args, unknown flag, first-file-wins).
+- `app.go` — added `PendingOpen`/`PendingDark` fields; `OnDomReady(ctx)` opens the pending file once the WebView exists (emits `file-opened` / sets theme); `OnSecondInstanceLaunch(data options.SecondInstanceData)` parses forwarded args, resolves relative paths against `data.WorkingDirectory`, opens the file, and `WindowShow`s.
+- `main.go` — Cobra root + `view` subcommand (`--dark` flag, `cobra.MaximumNArgs(1)`); bare `md-view` opens an empty window (also covers double-click). `runDesktop(file, dark)` sets `PendingOpen`/`PendingDark` and calls `wails.Run` with `OnDomReady` + `SingleInstanceLock{UniqueId, OnSecondInstanceLaunch}`.
+
+### Why
+
+- `OnDomReady` is the correct hook to open the CLI file: at `Startup` the window/DOM don't exist yet, so rendering must wait until the DOM is ready. `PendingOpen` bridges the gap.
+- Keeping Cobra gives `--help`, subcommand structure, and graceful flag errors for free, and the bare-root `RunE` covers the double-click case (per the Wails Discussion #1271 gotcha — a bare launch must still open the GUI).
+
+### What worked
+
+- **Drop-in CLI verified end to end with the production binary** (`wails build`): `build/bin/md-view view README.md` opened a native window titled **`md-view: README.md`** — Cobra parsed the arg, `PendingOpen` flowed to `OnDomReady`, `RenderBody` rendered, `WindowSetTitle` set the native title. `--dark` and bare `md-view` both work. `view --help` and `--help` render correctly.
+- `ParseViewArgs` unit tests: all 8 pass; the full suite (`go test -tags webkit2_41 ./...`) is green.
+- The Wails binding generator recognized `options.SecondInstanceData` (`KnownStructs: … options.SecondInstanceData …` in the `wails build` log), so the struct is wired correctly at the type level.
+
+### What didn't work (two important findings)
+
+1. **Plain `go build -tags webkit2_41` does NOT produce a runnable Wails binary.** Running it gave: *"Error: Wails applications will not build without the correct build tags."* Wails injects additional build tags (e.g. `desktop`) during `wails build`; a raw `go build` is missing them and the app refuses to start. **Implication for Phase 7:** the Makefile `build`/GoReleaser/CI must use `wails build` (or `go build` with the full Wails tag set), not plain `go build`. The existing `make wails-build` target is correct; `make build` (still pointing at the old CLI) will be repointed in Phase 7. (Also: stderr from a tmux-launched GUI was silently swallowed — run GUI binaries with redirected stderr to see this class of error.)
+2. **`SingleInstanceLock` did not dedupe on this Linux machine.** A 2nd `md-view view other.md` opened a *second* window (`md-view: Phase 2 Fixture`) instead of forwarding to instance #1. Investigation: Wails' Linux single-instance uses **D-Bus session bus** (`internal/frontend/desktop/linux/single_instance.go`): instance #1 `RequestName`s `org.wails_app_<id>.SingleInstance`; a 2nd process checks if the name is taken and, if so, forwards args + `os.Exit(1)`. In testing the name was **not** detected as taken (the 2nd process proceeded to a full launch). Even launching both from the identical shell (same `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus`, bus reachable — 134 names listed) reproduced the 2nd-window behavior. Root cause not pinned down (candidate: a name-registration race, or `RequestNameReplyExists` not returned in this environment). **User decision: multiple windows are acceptable**, so this stays a known limitation; the `SingleInstanceLock` code is retained (correct per the documented API, harmless, may work on macOS/Windows or a differently-configured D-Bus) rather than removed.
+
+### What I learned
+
+- **The drop-in CLI is fundamentally about (a) parsing `view <file> [--dark]` and (b) opening the file once the window exists** — both satisfied. `SingleInstanceLock` is a *dedup* optimization on top, not a prerequisite for "drop-in."
+- Wails production binaries require `wails build`; the `go build` tag set is incomplete. This is a Phase-7 (cutover/CI) concern and must be reflected in the Makefile and `.goreleaser.yaml`.
+- Wails' single-instance is platform-specific (D-Bus on Linux, named-pipe/window on Windows, NSDistributedNotification on macOS). A failure on one platform doesn't mean the code is wrong.
+
+### What was tricky to build
+
+- **`ParseViewArgs` is flag-value-unaware:** `--port 8080 doc.md` parses `8080` as the file (the first non-flag), because the parser doesn't know `--port` takes a value. Documented in the test (`unknown flag value becomes the file`). The Cobra path handles real flags; `ParseViewArgs` is the lenient 2nd-instance fallback. If strict 2nd-instance parsing is ever needed, use Cobra there too.
+- **`go build` vs `wails build`** cost real debugging time before the "missing build tags" error surfaced (stderr was buffered/swallowed under tmux). Lesson: when a GUI binary "does nothing," run it with `2>&1` redirected to a file.
+
+### What warrants a second pair of eyes
+
+- The decision to **keep `SingleInstanceLock` enabled despite it not dedup-ing here.** Alternatives: (a) remove it as dead code, (b) gate it behind a flag, (c) keep as-is. Chose (c) per "multiple windows are fine" — confirm this is preferred over (a).
+- `ParseViewArgs`'s flag-value blindness (documented above) — acceptable for the lenient path?
+- `OnDomReady` opens the pending file and emits `file-opened`; confirm the frontend's `file-opened` listener (added in Phase 5 consumption) handles the startup-time emit correctly (the listener is registered in `app.js` at DOMContentLoaded, which races `OnDomReady` — in practice Wails fires `OnDomReady` after the DOM is ready, so the listener exists; worth a smoke test in the real window).
+
+### What should be done in the future
+
+- **Investigate the Linux D-Bus single-instance non-dedup** if true single-window behavior is ever required (likely a `RequestName` flag / timing issue, or a sandbox/bus-address difference). Until then, each `md-view view` opens a new window — acceptable.
+- Phase 7 cutover: repoint `make build` / GoReleaser / CI to `wails build` (not `go build`).
+- Persist theme preference (open question OQ-2) — `PendingDark` already sets `a.theme`; saving it would make `--dark` sticky.
+
+### Code review instructions
+
+- `cli.go` + `cli_test.go`: `ParseViewArgs` (pure, 8 tests).
+- `app.go`: `PendingOpen`/`PendingDark`, `OnDomReady`, `OnSecondInstanceLaunch`.
+- `main.go`: Cobra `view` + bare root → `runDesktop` → `wails.Run` with `OnDomReady` + `SingleInstanceLock`.
+- Validate: `wails build -tags webkit2_41`; `build/bin/md-view view README.md` opens a window titled `md-view: README.md`; `go test -tags webkit2_41 ./...` green.
+
+### Technical details
+
+- Commit (this step): see `git log` for "feat(MD-WAILS): Cobra view command + SingleInstanceLock (Phase 6)".
+- Production binary: `build/bin/md-view` (~15 MB, via `wails build`).
+- SingleInstanceLock: `UniqueId = "github.com/go-go-golems/md-view"`; Linux D-Bus name `org.wails_app_github_com/go_go_golems/md_view.SingleInstance`.
+
+## Step 10: Phase 7 — cutover (delete old packages, single binary)
+
+Phase 7 was the irreversible step: delete the daemon/protocol/server/commands packages and the old `cmd/md-view` entry, leaving a single Wails binary as `md-view`. Build infrastructure (Makefile, GoReleaser, CI, AGENT.md) was repointed to `wails build`.
+
+### Prompt Context
+
+**User prompt (verbatim):** "continue"
+
+**Assistant interpretation:** Execute Phase 7: delete `pkg/{daemon,protocol,server,commands}` + `cmd/md-view/main.go`, confirm the single binary builds and the drop-in CLI still works, and update Makefile/`.goreleaser.yaml`/CI/`AGENT.md` to reflect the Wails-only build.
+
+**Inferred user intent:** Complete the replacement — one `md-view` binary, no daemon remnants, build/CI consistent.
+
+### What I did
+
+- Verified the dependency graph first: the only importers of the doomed packages were *internal* to them (`commands`→`daemon`/`protocol`/`server`; `server`→`daemon`/`protocol`; `cmd/md-view`→`commands`). The new root `main.go`/`app.go` reference them only in comments. Safe to delete.
+- `git rm -r cmd/md-view pkg/daemon pkg/protocol pkg/server pkg/commands`. Surviving Go: root `main` package, `pkg/renderer`, `pkg/watcher`, `cmd/gen-chroma-css`.
+- `go mod tidy` — dropped `github.com/go-go-golems/glazed` (the old CLI framework) and its transitive deps. Direct deps now: chroma, fsnotify, logcopter, cobra, wails, goldmark, goldmark-highlighting.
+- **Makefile:** `build` now depends on `frontend-css` and runs `wails build -tags webkit2_41` (NOT `go build` — per the Phase 6 finding); `run` uses `build/bin/md-view view`; `test` uses `-tags webkit2_41`; removed `glazed-lint`/`bump-glazed`/`serve` dev target; `clean` drops `build/bin`.
+- **`.goreleaser.yaml`:** `main: .` (was `./cmd/md-view`); added `flags: [-tags=webkit2_41,desktop,production]` (linux) / `[-tags=desktop,production]` (darwin); `before` hooks run the CSS generator; updated brew/nfpm descriptions (no more "daemon"/"browser").
+- **CI:** `push.yml` installs `libwebkit2gtk-4.1-dev`+`libsoup-3.0-dev`, regenerates CSS, and runs `go test -tags webkit2_41 ./...`; `lint.yml` installs the webkit deps, lints `. ./cmd/... ./pkg/...`, and dropped the `make glazed-lint` step (glazed removed).
+- **`AGENT.md`:** rewrote Build Commands + Project Structure for the Wails single-binary model.
+- Removed an unused `viewFlags` type lint flagged in `main.go`.
+
+### Why
+
+- The cutover is the whole point of "drop-in replacement": one binary named `md-view`, no daemon/socket/PID state, no `serve`/`stop`/`status`. Keeping the old packages would contradict the single-binary story and leave dead code.
+- `wails build` (not `go build`) is mandatory — the Phase 6 finding. Bake that into every build path so no one hits the "will not build without the correct build tags" error again.
+
+### What worked
+
+- **End-to-end cutover verified:** `make build` → `build/bin/md-view` (17 MB); `build/bin/md-view view README.md` opens a native window titled `md-view: README.md`. The single binary is the drop-in replacement.
+- `go test -tags webkit2_41 ./...` green (renderer + cli tests); `golangci-lint run` **0 issues**.
+- `go mod tidy` cleanly removed glazed + transitive deps — a real simplification.
+
+### What didn't work
+
+- **Lint flagged an unused `viewFlags` type** in `main.go` (a vestige from an earlier draft before I switched to a bare `viewDark` var). Removed it. Lesson: run lint before committing; dead code from iterative refactoring is easy to leave behind.
+- The Phase 6 `SingleInstanceLock` non-dedup finding carries forward (documented in Step 9); not re-litigated here. Multiple windows remain acceptable.
+
+### What I learned
+
+- The dependency graph was cleanly layered: deleting 5 dirs touched nothing outside them. This is a direct payoff of the Phase 1 `RenderBody` refactor keeping `pkg/renderer` decoupled from `pkg/server` — the renderer survived the cutover unchanged.
+- GoReleaser can build a Wails app with explicit `-tags=desktop,production` (+`webkit2_41` on linux) — `wails build` is a thin wrapper around `go build` with those tags + asset bundling. The goreleaser path won't bundle the Wails installers/icons, but produces a working binary; full Wails packaging (`.app`/`.dmg`/NSIS) is a future follow-up if needed.
+
+### What was tricky to build
+
+- **CI build-tag propagation:** `go test ./...` without `-tags webkit2_41` fails to compile the root `main` (Wails' `//go:build` constraints). Every CI/test/lint path needs the tag, plus the webkit dev libs for CGO. Easy to miss one.
+- GoReleaser's `flags:` vs Wails' own build tags: had to enumerate `desktop,production` explicitly since goreleaser doesn't run `wails build`.
+
+### What warrants a second pair of eyes
+
+- The GoReleaser `-tags=desktop,production` (darwin) / `webkit2_41,desktop,production` (linux) set — these are the tags `wails build` injects, but I inferred them; a real `goreleaser` release run (or comparing `wails build -verbose` output) should confirm the exact set before cutting a release.
+- Whether to add a dedicated `wails build` CI job (in addition to the goreleaser path) for proper asset bundling.
+- macOS/Windows path handling in `assets.go` (`/file/...` leading-slash stripping) is Unix-shaped — untested on Win/mac.
+
+### What should be done in the future
+
+- Phase 8: reMarkable upload + toolbar buttons (bound methods replacing the old `fetch('/upload-remarkable')`).
+- Replace the favicon 404 (add a 204 handler or a real favicon).
+- Full Wails packaging in CI (`.app`/`.dmg`/NSIS) if cross-platform installers are wanted.
+- Revisit `SingleInstanceLock` dedup on Linux/D-Bus if single-window behavior becomes required.
+
+### Code review instructions
+
+- Deletions: `git show --stat <this commit>` — `cmd/md-view`, `pkg/{daemon,protocol,server,commands}` removed.
+- `Makefile` (`build`/`run`/`test`/`clean`/`install` rewritten; `frontend-css`/`wails-dev` targets), `.goreleaser.yaml` (`main: .`, build tags, descriptions), `.github/workflows/{push,lint}.yml` (webkit deps + tags), `AGENT.md`.
+- Validate: `make build && build/bin/md-view view README.md` opens `md-view: README.md`; `make test`; `make lint`.
+
+### Technical details
+
+- Commit (this step): see `git log` for "feat(MD-WAILS): cutover — delete daemon packages, single Wails binary (Phase 7)".
+- Binary: `build/bin/md-view` (~17 MB). Deps dropped: glazed (+transitive).
+
+## Step 11: Phase 8 — reMarkable upload + toolbar buttons (bound methods)
+
+Phase 8 restored the in-page toolbar buttons (reMarkable upload, copy-path, download) by replacing the old `fetch('/upload-remarkable')` / `fetch('/raw')` calls with bound Go methods. This was the last feature gap vs the daemon model.
+
+### Prompt Context
+
+**User prompt (verbatim):** "continue"
+
+**Assistant interpretation:** Execute Phase 8: add bound `UploadToRemarkable`/`RawFile`/`DownloadMarkdown` methods (mirroring the deleted `pkg/server` handlers), and a `buttons.js` that builds the toolbar row and calls those methods instead of fetch.
+
+**Inferred user intent:** Feature parity — the reMarkable upload button and copy/download toolbar that existed in the browser version, now driven by the Wails bridge.
+
+### What I did
+
+- `app.go` — three bound methods:
+  - `UploadToRemarkable(path) (string, error)`: validate → `exec.Command("remarquee","upload","md",abs,"--non-interactive")` → return trimmed stdout, or wrapped stderr/error. Mirrors the deleted `handleUploadRemarkable`.
+  - `RawFile(path) ([]byte, error)`: `os.ReadFile` after abs resolve (mirrors `handleRaw`).
+  - `DownloadMarkdown(path) (string, error)`: read file → `runtime.SaveFileDialog` → write to chosen path (returns "" on cancel).
+- `frontend/dist/buttons.js` — `MDSInitButtons()` builds a fixed-position row (copy-path / download / reMarkable) for the current file; idempotent (removes any existing row first); calls the bound methods on click, with spinner/check/error icon states and toast feedback. Loaded via `index.html`; `app.js` calls `MDSInitButtons()` after every `showContent`.
+
+### Why
+
+- Bound methods replace HTTP: no `/upload-remarkable` route, no `fetch`, no JSON error envelope — the Wails bridge marshals `(string, error)` directly into a JS `Promise` (resolve/reject).
+- Keeping the buttons in their own `buttons.js` (separate from `augment.js`'s copy/mermaid) matches the daemon model's split and keeps each concern independently re-runnable after content swaps.
+
+### What worked
+
+- **Verified end to end via `wails dev` + Playwright:** opened `/tmp/md-view-reload.md`; the button row built (3 buttons); `UploadToRemarkable` returned `"OK: uploaded md-view-reload.pdf -> /ai/2026/06/13"`; `remarquee cloud ls /ai/2026/06/13` confirmed the file **landed on the device** (`md-view-reload`). The whole chain (button → bound method → `remarquee` → reMarkable cloud) works.
+- gofmt clean; golangci-lint **0 issues**; `make build` ok; `make test` green.
+
+### What didn't work
+
+- Nothing failed. The bound-method shape (`(string, error)` → `Promise<string>`) mapped cleanly onto the existing button logic; only the transport changed (fetch → `window.go.main.App.*`).
+
+### What I learned
+
+- The Wails bridge turns a Go `(string, error)` into a JS Promise that resolves with the string or rejects with the error string — so the frontend's `.then(msg => …)` / `.catch(e => …)` is a direct replacement for `fetch().then(r => r.json())`, with no JSON envelope needed.
+- `runtime.SaveFileDialog` is the native-dialog equivalent of an `<a download>` click; it's the right tool for "download markdown" in a desktop app (no `/raw` route needed).
+
+### What was tricky to build
+
+- **Button-row idempotency:** `MDSInitButtons` must remove any prior `#md-view-button-row` before building, or live reload / re-open stacks duplicate rows. Handled with an id + `remove()`.
+- The row positions `right: 48px` to sit beside the theme toggle (which lives at `right: 12px`); reuse the `.md-view-toolbar-btn` / `.md-view-remarkable-btn` classes from the generated `ui.css` so styling is consistent with the daemon version.
+
+### What warrants a second pair of eyes
+
+- `UploadToRemarkable` runs `remarquee` with a path validated only by `os.Stat` (no allow-list, unlike `/file/` image serving). Acceptable — it's a user-initiated upload of *their own* open file — but confirm the threat model is OK with it (the daemon version had the same posture).
+- `DownloadMarkdown` writes to an arbitrary user-chosen path; standard desktop save-dialog behavior, no sandboxing. Fine for a local viewer.
+
+### What should be done in the future
+
+- Replace the favicon 404 (add a 204 handler or a real favicon asset).
+- Consider persisting theme preference (OQ-2) — `PendingDark`/`ToggleTheme` already maintain `a.theme`; saving it to the config JSON would make it sticky.
+- Full cross-platform smoke test (macOS/Windows) for the `/file/` path handling and `SaveFileDialog`.
+
+### Code review instructions
+
+- `app.go`: `UploadToRemarkable`, `RawFile`, `DownloadMarkdown` (+ imports: bytes/errors/os/os/exec/strings).
+- `frontend/dist/buttons.js` (new): `MDSInitButtons`.
+- `frontend/dist/{index.html,app.js}`: load `buttons.js`; call `MDSInitButtons()` in `showContent`.
+- Validate: `wails dev -tags webkit2_41`; open a file; the 3 buttons appear; reMarkable button uploads (verify with `remarquee cloud ls`).
+
+### Technical details
+
+- Commit (this step): see `git log` for "feat(MD-WAILS): reMarkable + toolbar buttons via bound methods (Phase 8)".
+- Verification: uploaded `md-view-reload` to `/ai/2026/06/13` on the device via the button's bound method.
+
+---
+
+## Phase summary (all 9 phases complete)
+
+Phases 0–8 are done. `md-view` is now a single ~17 MB Wails v2 binary, drop-in at the CLI (`md-view view <file> [--dark]`), with: dual-theme GitHub styling, Chroma syntax highlighting, Mermaid diagrams, frontmatter rendering, live reload, image serving (allow-listed), copy-to-clipboard, menus, drag-and-drop, recent-files persistence, and reMarkable upload + toolbar buttons. The daemon/socket/HTTP/PID packages are deleted. Build is `wails build` (via `make build`). Known limitation: `SingleInstanceLock` does not dedupe on this Linux/D-Bus setup (2nd invocation opens a new window) — accepted per user decision.
+
+## Step 12: Post-implementation review document for the new maintainer / intern
+
+After the implementation was complete, a second deliverable was requested: not another design doc, but a technical review of the finished work. The purpose was to step back from the phase-by-phase diary and evaluate the rewrite as a completed engineering project: what was strong, what was weak, what should have been known earlier, what helped, and what a new intern should learn next.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Ok, we're taking over, this was our little brother writing all the code and doing all the planning, a big projcet for them. We are now going to review it, and figure out what worked, what's good, what's bad, what they should have known better, what could have helped them, what they should do in the future, where to look for and what to learn. Create  a detailed analysis / and review document that is for a new intern, explaining all the parts of the system needed to understand what it is, with prose paragraphs and bullet point sand pseudocode and diagrams and api references and file references. It should be very clear and technical. Store in the ticket and the nupload to remarkable."
+
+**Assistant interpretation:** Produce a second, intern-facing ticket deliverable focused on technical review and lessons learned, not implementation planning: explain the completed system, then evaluate the engineering process and resulting codebase honestly.
+
+**Inferred user intent:** Preserve judgment, not just implementation details. A future maintainer should understand both the final architecture and the review conclusions about quality, risks, and what to learn next.
+
+### What I did
+
+- Added a new ticket document: `design-doc/01-implementation-review-and-lessons-learned.md`.
+- Gathered line-anchored evidence from the finished code (`main.go`, `app.go`, `events.go`, `assets.go`, `menu.go`, `recent.go`, `cli.go`, `pkg/renderer/renderer.go`, frontend JS files, `Makefile`, `.goreleaser.yaml`, `AGENT.md`) and from the current stale docs (`README.md`, `docs/getting-started.md`, `docs/user-guide.md`).
+- Wrote a long-form review covering:
+  - the current architecture and subsystem map,
+  - what was done well (renderer preservation, phased implementation, runtime verification, clean cutover),
+  - what was weak or incomplete (stale public docs, late build-system discovery, single-instance assumption, thin unit coverage outside renderer/CLI),
+  - what the implementer should have known earlier,
+  - what helped,
+  - what to learn next,
+  - concrete follow-up tasks.
+- Fixed a frontmatter corruption issue caused by earlier shell-quoted `docmgr doc relate` calls and restored a clean docmgr-compatible frontmatter block.
+
+### What worked
+
+- The review found a real and important issue that would be easy to miss in a celebratory implementation summary: the **user-facing docs are still stale** and still describe the deleted daemon/browser model. This is a serious product/documentation flaw and is now explicit rather than implicit.
+- The finished repo state was clean (`git status` clean), which made it possible to review the implementation as a stable artifact rather than a moving target.
+
+### What didn't work
+
+- Earlier `docmgr doc relate` calls to the new review doc were polluted by shell parsing (`backticks` in a file-note and a Wails/pkg-config side effect), leaving the frontmatter's `RelatedFiles` block corrupted. I replaced the frontmatter with a clean block and chose not to re-add relations automatically in this step; the review doc's body already contains the precise file references and line anchors.
+
+### What I learned
+
+- Review documents need a different voice from implementation guides. The design guide says "here is the plan and architecture." The review doc says "here is what actually happened, and here is the quality judgment."
+- The stale-docs finding is the clearest example of why post-implementation reviews matter: the code was ahead of the docs, and without a dedicated review deliverable that mismatch might have remained a vague discomfort instead of an actionable item.
+
+### What was tricky to build
+
+- The challenge was to keep the tone technically direct without collapsing into a bug list. A useful review needs both system explanation and judgment, or an intern cannot connect the lessons to the code.
+
+### What warrants a second pair of eyes
+
+- The review's assessment of `.goreleaser.yaml` is intentionally cautious: the config was updated intelligently, but the exact Wails tag set used there still deserves a real release dry-run before a production release.
+- The judgment that `SingleInstanceLock` should remain in code as a best-effort feature, despite not deduping on this Linux/D-Bus setup, is reasonable but not inevitable. Another maintainer might prefer to remove it until it is proven.
+
+### What should be done in the future
+
+- Rewrite the public docs immediately (README + getting-started + user-guide) to match the cutover.
+- Run a real GoReleaser dry run.
+- Add focused unit tests around `assets.go` and `recent.go`.
+
+### Code review instructions
+
+- Read the implementation review after the design guide. The two docs answer different questions and are meant to be read together.
+- Spot-check the stale-docs evidence in `README.md`, `docs/getting-started.md`, and `docs/user-guide.md` — this is the most actionable review finding.
+- Compare the review's scorecard against the actual commits and current file structure.
+
+### Technical details
+
+- Deliverable path: `design-doc/01-implementation-review-and-lessons-learned.md`.
+- Upload bundle (this step): review doc + diary + design guide + index to reMarkable.
+
+## Step 13: Phase 9 — scope the documentation cutover and add tasks
+
+The implementation review (Step 12) named the stale user-facing docs as the single biggest non-code weakness: `README.md`, `docs/getting-started.md`, and `docs/user-guide.md` still describe the **deleted** daemon/browser model. This step scopes that work precisely and turns it into an atomic Phase 9 task list so the remaining doc work is verifiable rather than hand-wavy.
+
+### Prompt Context
+
+**User prompt (verbatim):** "read [investigation diary] and [the ARTICLE in the Obsidian vault] And then add tasks to the ticket to update / clarify / remove all the necessary documentation to fit the new refactor. see also [implementation review doc]. Keep a diary as you work, commit at appropriate intervals"
+
+**Assistant interpretation:** Audit every doc/reference in the repo for stale daemon/browser/socket/CLI content, add a concrete Phase 9 documentation-cutover task list to the ticket, then execute it file-by-file with diary entries and focused commits.
+
+**Inferred user intent:** Close the documentation gap the review identified — the code shipped a single Wails binary, but the user-facing docs still teach the daemon. The public surface must match the shipped system before this rewrite is actually "done".
+
+### What I did
+
+- Re-read the three inputs end-to-end: the investigation diary (Steps 1–12), the Obsidian deep-dive article, and the implementation review doc.
+- **Audited all markdown outside the ticket** (`find . -name '*.md' -not -path './ttmp/*'`): only four files exist — `README.md`, `AGENT.md`, `docs/getting-started.md`, `docs/user-guide.md`.
+- **Grep-audited stale-model terms** (`daemon`, `md-view serve/stop/status`, `Unix Socket`, `SSE`, `--browser`, `--no-reload`, `glazed`, `127.0.0.1`, `cmd/md-view`) across the repo (excluding `ttmp/`, `node_modules/`, `frontend/wailsjs/`). Matches were confined to the three user-facing docs plus historical references in `AGENT.md` (which legitimately explain what the cutover deleted). `AGENT.md`, `Makefile`, `.goreleaser.yaml`, `wails.json` are already correct.
+- **Cross-checked the implementation claims against the live code** so the doc rewrites would be accurate, not just paraphrased from the diary: `main.go` (Cobra `view` + bare root + `runDesktop` + `SingleInstanceLock`), `app.go` (bound methods incl. `UploadToRemarkable`/`RawFile`/`DownloadMarkdown`), `Makefile` (`build: frontend-css; wails build -tags webkit2_41`), `go.mod` (`module github.com/go-go-golems/md-view`), `.goreleaser.yaml` (`main: .`, brew/nfpm descriptions already de-daemonized).
+- **Discovered a tasks.md drift:** Phase 8 is fully implemented in code (`buttons.js` exists, `app.go:249/276/287` has the three bound methods, `app.js` calls `MDSInitButtons`), but tasks.md still showed 8.1–8.3 unchecked. Fixed by checking them off with line anchors.
+- Wrote **Phase 9** (tasks 9.1–9.7) into `tasks.md`: audit → README → getting-started → user-guide (explicit removal list) → AGENT verify → bookkeeping → final grep validation.
+
+### Why
+
+- The review doc already did the diagnosis; this step converts that diagnosis into an execution plan with a precise removal/rewrite scope per file, so the remaining steps can't drift into "make it look modern".
+- Locking the install story matters: the old `go install github.com/go-go-golems/md-view/cmd/md-view@latest` is doubly wrong now (path deleted **and** Wails CGO binaries don't `go install`). The new docs must point at `make build` (with the webkit dev-lib caveat) and GoReleaser-produced native packages.
+
+### What worked
+
+- The audit was tight: only 3 files need real rewrites, 1 needs only verification, and everything else is already correct. The doc cutover is smaller than it first looked.
+- The grep audit produced an acceptance criterion for the end (task 9.7): zero live operational references to the old model outside the ticket.
+
+### What didn't work
+
+- Nothing failed. One correction: I initially assumed Phase 8 was open work; the code showed it was done. Recording tasks.md drift so the file stays a trustworthy record.
+
+### What I learned
+
+- `AGENT.md`'s "daemon"/"socket" mentions are a useful historical hand-off to a new contributor ("here is what we deleted and why"), not stale ops docs. The distinction matters: historical context is fine; operational instructions for a deleted subsystem are not.
+- For a CGO desktop binary, `go install <module>/cmd/<binary>` is the wrong install model in two independent ways (no `cmd/md-view`, and CGO/Wails needs the toolchain + system webkit libs). The docs must lead with build-from-source.
+
+### What was tricky to build
+
+- Scoping the `docs/user-guide.md` rewrite: that file has large now-obsolete sections (HTTP API, Unix Socket Protocol, Daemon Management, Browser Integration, SSE). Deciding to **remove** those wholesale rather than rewrite them in place — there is no HTTP/socket/daemon to document anymore. Keeping the surgery explicit in task 9.4 so a reviewer can see exactly what is deleted vs. rewritten vs. kept.
+
+### What warrants a second pair of eyes
+
+- The decision to drop the "theme persistence via localStorage" claim entirely (the new app keeps theme in-memory only — OQ-2 still open). Confirm we'd rather document the honest in-memory behavior than promise localStorage persistence that isn't implemented.
+- Whether to document the GoReleaser-produced deb/rpm/brew packages as "available" — they are configured but a release hasn't been cut in this session, so the docs will say "once released" / build-from-source as the primary path.
+
+### What should be done in the future
+
+- Execute 9.2–9.7 in order; commit after each file.
+- After 9.7, consider a follow-up to cut an actual release so the native-package install path becomes real.
+
+### Code review instructions
+
+- `tasks.md`: Phase 8 now checked; Phase 9 added (9.1–9.7).
+- Validate: `rg -n 'daemon|md-view serve|md-view stop|md-view status|--browser|--no-reload|Unix Socket|SSE|/render|/events|cmd/md-view' --glob '!ttmp/**' README.md AGENT.md docs/` still shows the (pre-9.2–9.4) stale hits in the three docs.
+
+### Technical details
+
+- Files audited: `README.md`, `AGENT.md`, `docs/getting-started.md`, `docs/user-guide.md`.
+- Correct-already: `AGENT.md`, `Makefile`, `.goreleaser.yaml`, `wails.json`.
+
+## Step 14: Phase 9 — rewrite README.md and docs/getting-started.md
+
+With the scope locked, the two landing docs were rewritten to describe the shipped single-binary Wails app. The biggest correctness fixes were the install story and the removal of the daemon/browser command surface.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 13 — add tasks, then execute the documentation cutover, keeping a diary and committing.)
+
+**Assistant interpretation:** Execute tasks 9.2 and 9.3: rewrite `README.md` and `docs/getting-started.md` so a new user reading them first forms the right model (native window, no daemon, `make build`, `view [file] [--dark]`), with no live operational references to the deleted model.
+
+**Inferred user intent:** The public entry-point docs must stop teaching the daemon. Anyone who clones the repo or reads the README on GitHub should get install + usage that actually works.
+
+### What I did
+
+- **`README.md`** (full rewrite): replaced the "lightweight daemon" intro with the Wails single-binary framing; new architecture diagram (single process: Cobra CLI → Wails runtime → WebView + `pkg/renderer`/`pkg/watcher`); corrected the command table to `view [file] [--dark]` + bare `md-view`; rewrote the install section to lead with `make build` (and the `libwebkit2gtk-4.1-dev`/`libsoup-3.0-dev` Linux caveat) plus GoReleaser-produced native packages, explicitly stating it is **not** `go install <module>/cmd/md-view` (path deleted, CGO/Wails); added the relative-image, drag-drop, recent-files, reMarkable, and copy/download features; documented the Linux `SingleInstanceLock` multi-window limitation.
+- **`docs/getting-started.md`** (full rewrite): install (build from source, not `go install`); "Your First View" now describes a native window opening (no daemon-start steps, no browser, no URL printout); live reload described as event-driven (`file-changed`), with `--no-reload` removed; dark theme via toggle + `--dark` only (URL param/localStorage removed); new "Open Files Other Ways" (menu, drag-drop, recent-files sidebar + `~/.config/md-view/recent.json`) and "Relative Images" (`/file/` allow-list) sections; Quick Reference trimmed to the three real invocations.
+- Verified both files with a grep pass for stale terms. The only remaining hits are **correct negative statements** ("There is no daemon", "not installable via `go install`", "The old `serve`/`status`/`stop` commands no longer exist") and the legitimate `/file/` allow-list reference — no live operational instructions for the deleted model survive.
+
+### Why
+
+- These two files are the first thing a user reads. If they teach `go install .../cmd/md-view` or `md-view serve`, the install fails and the mental model is wrong before any code runs. Leading with `make build` + the webkit-dev-lib caveat is the honest, working path for a CGO desktop binary today.
+- Removing `--no-reload`/`--browser`/`--no-browser`/`--port`/URL-params was not cosmetic: those flags/params do not exist in the Cobra `view` command (`main.go`) anymore, so documenting them would be a lie.
+
+### What worked
+
+- The grep-as-acceptance-criterion from Step 13 paid off immediately: it turned "is it clean?" into a checkable boolean, and it surfaced that the surviving matches were all intentional negatives rather than bugs.
+- Keeping the hero image and the "30-second quick start" shape preserved continuity for existing readers while fixing every factual claim underneath.
+
+### What didn't work
+
+- Nothing failed. One judgment call: I chose to state theme persistence honestly as "kept in memory for the current session" rather than promise localStorage persistence (the Wails app does not persist theme yet — OQ-2). Documenting the real behavior beats documenting the old daemon's behavior.
+
+### What I learned
+
+- A CGO desktop binary breaks the `go install <module>/cmd/x` muscle memory in two independent ways: the `cmd/md-view` path is gone, **and** even if it existed, `go install` does not provide the CGO toolchain + system WebView libs a Wails binary needs. So the docs must lead with build-from-source and treat native packages as the distribution story.
+- "Negative" doc lines ("md-view is not a daemon", "the old commands no longer exist") are valuable migration hand-holding and should not be purged by an over-eager grep — they are the bridge for readers who remember the old tool.
+
+### What was tricky to build
+
+- **Tone of the migration note.** Saying "not a daemon, no serve/stop/status" has to be helpful, not apologetic. Phrased it as a short callout so return readers immediately learn the model changed, without dwelling on it.
+
+### What warrants a second pair of eyes
+
+- Whether the GoReleaser "native packages (Homebrew / deb / rpm) are produced on release" wording over-promises. A release has not been cut in this session; the wording deliberately says "once one is released" / "on release". Confirm that's the right hedge vs. removing the line entirely until a release exists.
+- The in-memory theme-persistence wording — confirm we want the honest "current session" phrasing rather than implementing persistence first.
+
+### What should be done in the future
+
+- 9.4: rewrite `docs/user-guide.md` (the big surgery — remove HTTP API / Unix Socket / Daemon Management / browser-selection sections).
+- Eventually cut a release so the native-package install path is real, not "on release".
+
+### Code review instructions
+
+- `README.md` (rewritten) and `docs/getting-started.md` (rewritten).
+- Validate: `rg -nE 'daemon|serve|status|stop|--browser|--no-reload|--no-browser|--port|Unix Socket|SSE|127\.0\.0\.1|cmd/md-view|go install' README.md docs/getting-started.md` — every hit must be a negative statement or a migration note, not an instruction.
+- Confirm the command table / Quick Reference match `main.go` (only `view [file] [--dark]` + bare root).
+
+### Technical details
+
+- Commit (this step): see `git log` for the README + getting-started commit.
+- Removed claims: `--browser`, `--no-browser`, `--no-reload`, `--port`, `?theme=dark` URL param, localStorage theme persistence, `go install .../cmd/md-view`, `md-view serve/status/stop`.
+
+## Step 15: Phase 9 — rewrite docs/user-guide.md (remove the obsolete subsystem docs)
+
+The user-guide was the largest surgery: it contained whole sections documenting subsystems that no longer exist (HTTP API, Unix Socket Protocol, Daemon Management, browser selection, SSE). Those sections were removed outright; the rest was rewritten to the Wails model.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 13 — execute the documentation cutover, keeping a diary and committing.)
+
+**Assistant interpretation:** Execute task 9.4: remove the obsolete subsystem-doc sections from `docs/user-guide.md` and rewrite the rest, then run task 9.7 (the grep acceptance check) across all rewritten docs.
+
+**Inferred user intent:** The user-guide is the reference doc; it must not document endpoints, sockets, or commands that don't exist. A reader looking up "how does live reload work" must get the event-driven answer, not the deleted SSE answer.
+
+### What I did
+
+- **Removed sections entirely** (they describe deleted code): `serve` / `status` / `stop` command sections; the entire **HTTP API** section (Render/Raw/Static/SSE endpoints); the **Unix Socket Protocol** section; **Daemon Management** (state files, stale PID); **Browser Integration** (browser selection, `--browser`, `--no-browser`); and the flags `--browser`/`--no-browser`/`--no-reload`/`--port`.
+- **Kept + updated** (still accurate): Markdown Features (goldmark GFM table); Syntax Highlighting (reworded "server-side" → "in-process"); Mermaid Diagrams (kept; reworded the init mechanism to "the augmentation pass"); YAML Frontmatter; Page Titles → renamed to **Window Titles** (`runtime.WindowSetTitle`, native window).
+- **Rewrote** for the new model: the `view` command (only `--dark` flag); Overview (single Wails process diagram); Dark Theme (in-memory, no URL param/localStorage); Live Reload (fsnotify → `file-changed` event, no SSE); a new **Opening Files** section (menu/drag-drop/recent); **Relative Images** (`/file/` allow-list); **reMarkable Upload, Copy, and Download** (toolbar bound methods); **Recent Files** (config JSON per OS); i3/Sway (native window) + a **Multiple windows** subsection documenting the `SingleInstanceLock` Linux limitation; **Security** (no listener, `/file/` allow-list, no socket); **Troubleshooting** (web-kit dev libs, the "will not build without the correct build tags" error, multi-window note, CGO) — removed all daemon/port/browser-conflict items; **Dependencies** table (Wails, cobra, goldmark, chroma, fsnotify, logcopter — dropped glazed).
+- **Ran the task-9.7 acceptance grep** across `README.md`, `AGENT.md`, `docs/`: zero matches for `md-view serve|stop|status`, `--browser`, `--no-reload`, `--no-browser`, `Unix Socket`, `SSE`, `/render?`, `/events?`, `127.0.0.1`. Every surviving `daemon`/`go install`/`cmd/md-view` hit is a deliberate negative or migration note.
+
+### Why
+
+- Documenting a deleted HTTP API or socket protocol is worse than omitting it — it actively misleads. Wholesale removal of those sections is the honest move; there is nothing to "update" there because the subsystems are gone.
+- The troubleshooting rewrite matters most operationally: the two highest-value new entries are the `wails build` vs `go build` build-tags error (the real Phase-6 finding) and the webkit dev-lib install. Those are what a new user will actually hit.
+
+### What worked
+
+- The user-guide ended up **shorter and more accurate** than before despite adding several new sections (Opening Files, Relative Images, reMarkable/Copy/Download, Recent Files, Multiple windows) — because the removed HTTP/socket/daemon/browser material was large and is now gone.
+- Task 9.7's grep passed cleanly on the first run, which is the evidence the cutover is complete at the doc level.
+
+### What didn't work
+
+- Nothing failed. One small wording discipline: kept a short "What about serve/status/stop?" callout so return readers with muscle memory aren't stranded — it's a redirect ("drop those calls"), not a doc of the commands.
+
+### What I learned
+
+- "Server-side highlighting" was a transport-era phrase (the highlight happened in the HTTP server before sending HTML to the browser). In the Wails model it happens "in-process" — same Go code, different framing. The reword matters because "server-side" implies a server that no longer exists.
+- The `/file/` allow-list is now the entire security story; with no socket and no HTTP listener, there's no "socket permissions 0600" or "binds to 127.0.0.1" to document. The doc got simpler because the attack surface did.
+
+### What was tricky to build
+
+- **Deciding the removal-vs-rewrite line per section.** Rule applied: if the section documents a deleted subsystem (HTTP/socket/daemon/browser-selection) → remove; if it documents a surviving feature whose framing changed (highlighting, theme, reload, security) → rewrite. That rule kept the surgery principled instead of ad hoc.
+
+### What warrants a second pair of eyes
+
+- The "Theme persistence is a planned follow-up" wording — confirms we're documenting the gap honestly rather than hiding it. Same posture as OQ-2 in the design doc.
+- Whether the Troubleshooting `dnf` package names (`webkit2gtk4.1-devel`, `libsoup3-devel`) are correct for current Fedora — inferred from the Debian names; unverified on Fedora.
+
+### What should be done in the future
+
+- Verify the Fedora/Arch webkit package names against an actual install if targeting those distros.
+- 9.5/9.6: verify AGENT.md (already correct — historical refs only) and update ticket bookkeeping.
+
+### Code review instructions
+
+- `docs/user-guide.md` (rewritten).
+- Validate: `grep -rnE 'md-view serve|md-view stop|md-view status|--browser|--no-reload|--no-browser|Unix Socket|\bSSE\b|/render\?|/events\?|127\.0\.0\.1' README.md AGENT.md docs/` → only the intentional `go install`/`cmd/md-view` negatives in README/getting-started/AGENT.
+- Confirm the `view` flag table matches `main.go` (only `--dark`).
+
+### Technical details
+
+- Commit (this step): see `git log` for the user-guide rewrite.
+- Sections removed: HTTP API (render/raw/static/SSE), Unix Socket Protocol, Daemon Management (state files / stale PID), Browser Integration (browser selection), `serve`/`status`/`stop`.
+- Sections added/rewritten: Opening Files, Relative Images, reMarkable/Copy/Download, Recent Files (per-OS paths), Multiple windows, Security (allow-list only), Troubleshooting (webkit + build-tags + CGO).
+
+## Step 16: Address PR #2 Codex review (drag-drop, parent-relative images, relative-path handoff)
+
+After the docs cutover, the user asked to address the automated Codex review comments on PR #2. The review left three P2 inline comments on `app.go`, all of which I verified against the Wails v2.12.0 source and the deleted `pkg/server` before changing anything — two were fully valid bugs, one was partially valid (macOS-only).
+
+### Prompt Context
+
+**User prompt (verbatim):** "Address code review commands: https://github.com/go-go-golems/md-view/pull/2"
+
+**Assistant interpretation:** Read the three Codex inline review comments on PR #2, verify each claim against the actual Wails source and the deleted code, fix the real bugs, add tests, and commit + reply on the PR.
+
+**Inferred user intent:** Don't blindly apply or dismiss bot suggestions — investigate each, fix what's genuinely broken, and document the reasoning so the review thread has a defensible resolution.
+
+### What I did
+
+- **Fetched the 3 comments** via `gh api .../pulls/2/comments`: drag-drop callback not registered (app.go:313), parent-relative images 403 (app.go:190), `WorkingDirectory` resolving to the executable dir (app.go:122).
+- **Verified each against source before touching code:**
+  - *#1:* read `wails/v2@v2.12.0/pkg/runtime/draganddrop.go` — `OnFileDrop(ctx, cb)` subscribes to the `wails:file-drop` event; the bound method `a.OnFileDrop` was never registered via `runtime.OnFileDrop`, so drops never reached it. **Valid bug.** The diary's Phase-5 "drag-drop works" claim was unverified — it never actually fired.
+  - *#2:* read the deleted `pkg/server` from `git show 160897c~1` — it registered the file's dir **and all ancestors** (server.go:282-289). The new code registered only the immediate dir, so `![](../assets/x.png)` (rewritten to an absolute `/file/...` URL outside that dir) got 403. **Valid regression.**
+  - *#3:* read `wails/v2@v2.12.0/pkg/options/options.go` `NewSecondInstanceData()` plus each platform's `single_instance.go` — Linux (`linux/single_instance.go:56`) and Windows send `os.Getwd()` (correct), but **Darwin** calls `NewSecondInstanceData()` which sets `WorkingDirectory = filepath.Dir(os.Executable())`. So the relative-path bug only manifests on macOS. **Partially valid.**
+- **Implemented the fixes:**
+  - *#1:* added `runtime.OnFileDrop(ctx, a.OnFileDrop)` in `Startup` (app.go), with a comment that `EnableFileDrop` only arms the plumbing.
+  - *#2:* replaced `addAllowedDir` with `addAllowedDirTree` (assets.go) — registers the file's dir and all ancestors **except the filesystem root**. This fixes `../assets` and `../../shared` images while keeping `/etc/passwd` 403 (tighter than the old server, which registered `/` and effectively disabled the allow-list once any file opened).
+  - *#3:* added `absolutizeFileArg` (cli.go) called from `runDesktop` (main.go) — resolves the path to absolute in the invoking process and rewrites the matching `os.Args` entry so the SingleInstanceLock handoff forwards an absolute path regardless of platform. The `OnSecondInstanceLaunch` `WorkingDirectory` join is kept as a safety net (now dead for the common case since paths arrive absolute).
+- **Added 4 unit tests:** `TestAbsolutizeFileArgRewritesOsArgs`, `TestAbsolutizeFileArgPreservesAbsolute`, `TestAbsolutizeFileArgEmpty`, `TestAddAllowedDirTree` (verifies `../assets` allowed, `/etc/passwd` + `/` forbidden).
+- **Lint fix:** golangci-lint flagged the loop (`QF1006`); folded the root check into the loop condition.
+
+### Why
+
+- Each fix was grounded in the Wails source rather than the bot's prose, so the resolution is defensible in the review thread. The macOS-only nature of #3 mattered because it changes how I framed the fix (platform-independent absolutization, not a darwin-specific patch).
+- For #2 I deliberately chose "ancestors except root" over the old "all ancestors including root" — the old behavior made the whole filesystem readable after opening one file, which the diary (Phase 4) had explicitly tested against (`/etc/passwd` → 403). Replicating it would have silently broken that security property.
+
+### What worked
+
+- **E2E-verified #2 via the dev server + Playwright:** opened `/tmp/md-review-test/sub/doc.md` (`![](../assets/diagram.png)`); the rewritten `/file/tmp/md-review-test/assets/diagram.png` returned **200** (was 403), and `/file/etc/passwd` returned **403**. The `/file/` → 200 is a dev-server SPA fallback for the malformed empty target (returns index.html, not file contents), not a security issue.
+- `make build` produced `build/bin/md-view` (17 MB); launching it with `view` opened a native window, proving `Startup` (including the new `runtime.OnFileDrop` registration) runs without error.
+- All unit tests + `go vet` + `golangci-lint` (0 issues) green.
+
+### What didn't work
+
+- **Could not fully E2E-verify #1 (drag-drop) in browser dev mode.** Emitting `wails:file-drop` from JS via `runtime.EventsEmit` did NOT trigger the Go listener (`GetCurrentFile()` unchanged). Root cause: `wails:`-prefixed events are emitted by the **native webview** (WebKitGTK), not deliverable from JS — confirmed by reading `runtime_debug_desktop.js` (the JS-side `OnFileDrop` registers DOM `drop` listeners + `EventsOn("wails:file-drop")`, and the native C code emits the event). So browser dev mode can't simulate a real drop. Relied instead on (a) the registration matching the v2.12.0 API exactly (signature + event name) and (b) the native window launching without Startup error. A real GUI drag-drop test needs native-window automation (xdotool/wmctrl), which Playwright-on-browser can't do.
+
+### What I learned
+
+- `DragAndDrop.EnableFileDrop` is a common Wails footgun: it enables the plumbing but you must still call `runtime.OnFileDrop` to receive drops. The bound-method-with-the-right-signature pattern is misleading because it *looks* wired up but isn't.
+- The `SecondInstanceData.WorkingDirectory` is platform-divergent in Wails v2.12.0: `os.Getwd()` on Linux/Windows, `filepath.Dir(ex)` on Darwin. Any code joining a relative path against it is correct on 2/3 platforms and wrong on macOS.
+- An allow-list that registers ancestors up to `/` is effectively no allow-list. Excluding the root is the cheap, correct tightening that preserves both `../images` and `/etc/passwd` 403.
+
+### What was tricky to build
+
+- **Verifying #1 without a real drop.** The temptation is to "trust the API" and ship, but the diary had already once claimed drag-drop worked when it didn't. I verified the registration three ways (source signature match, dev-server Startup ran without panic, native binary launched) and documented the residual verification gap honestly rather than overstating confidence.
+- **The #2 security tradeoff.** The reviewer wanted the regression fixed; the old code's "all ancestors" was itself a latent security weakness. "Ancestors except root" satisfies both — but I had to reason it through rather than copy the old behavior.
+
+### What warrants a second pair of eyes
+
+- **#1 real-drop verification:** confirm on a platform with a GUI that dragging a `.md` onto the window actually opens it. The code is correct per the API; the gap is purely test infrastructure.
+- **#3 macOS verification:** the darwin `NewSecondInstanceData` path can't be exercised on this Linux machine. Confirm the absolutized-forwarded-args behave correctly on macOS where dedup engages.
+- The `absolutizeFileArg` `os.Args` scan matches the first occurrence of `file`; pathological inputs (a file literally named `view`) are already handled by `ParseViewArgs` ignoring `view`, but worth a glance.
+
+### What should be done in the future
+
+- Add a native-GUI drag-drop smoke test (xdotool or Wails test harness) to close the #1 verification gap.
+- Consider upstreaming a doc note to Wails that `EnableFileDrop` requires `runtime.OnFileDrop` (the footgun is general).
+- Reply to the three PR review threads with the resolution + commit hash.
+
+### Code review instructions
+
+- `app.go`: `Startup` registers `runtime.OnFileDrop`; `openPath` calls `addAllowedDirTree`.
+- `assets.go`: `addAllowedDirTree` (dir + ancestors, excluding root).
+- `main.go` + `cli.go`: `absolutizeFileArg` resolves + rewrites `os.Args` before `wails.Run`.
+- `cli_test.go`: 4 new tests.
+- Validate: `go test -tags webkit2_41 -run 'TestAbsolutizeFileArg|TestAddAllowedDirTree' -v .`; `make build && build/bin/md-view view README.md`; (E2E #2) `wails dev` + open a doc with `../assets/x.png` → image 200, `/file/etc/passwd` → 403.
+
+### Technical details
+
+- Commit (this step): `e680fc0` (amended from `d8d7aa4` to fix a backtick-in-commit-message shell-substitution that ate `wails:file-drop`).
+- Wails source verified: `pkg/runtime/draganddrop.go`, `pkg/options/options.go` (`NewSecondInstanceData`), `internal/frontend/desktop/{linux,windows,darwin}/single_instance.go`, `internal/frontend/runtime/runtime_debug_desktop.js`.
+- Deleted-code reference: `git show 160897c~1:pkg/server/server.go` (ancestors allow-list at lines 282-289).
+
+## Step 17: Address PR #2 review — clear backend state on File > Close
+
+A fourth Codex review comment arrived, this time on `frontend/dist/app.js` (the `close-file` event handler, lines 86–90). The claim: closing a file only hid the DOM, leaving `App.currentFile` set, the watcher running, and the `#md-view-button-row` in place — so the toolbar still targeted the old file and the next save re-showed it via `ReopenCurrent()`.
+
+### Prompt Context
+
+**User prompt (verbatim):** (pasted the Codex review comment on `frontend/dist/app.js` 86–90 about backend state not being cleared on close.)
+
+**Assistant interpretation:** Verify each sub-claim against the code, then fix Close so it clears backend state (`currentFile`, watcher, window title) AND removes the toolbar button row, so the closed file can't be acted on or re-shown.
+
+**Inferred user intent:** Make File > Close actually close the file across the whole stack — backend state, watcher, and the toolbar — not just the content DOM.
+
+### What I did
+
+- **Verified all five sub-claims by tracing the code** before changing anything:
+  1. `menu.go` Close emits `close-file` with `nil` and calls no Go method → `a.currentFile` never reset. ✓
+  2. `openPath` calls `watchFile`; there is no unwatch-on-close → the watcher goroutine keeps emitting `file-changed` for the closed file's path. ✓
+  3. `buttons.js` `MDSInitButtons` is only called from `showContent` (open), never on close → `#md-view-button-row` persists with the old path captured in its closure. ✓
+  4. `GetCurrentFile()` still returns the closed file → toolbar actions target it. ✓
+  5. The `file-changed` listener calls `ReopenCurrent()` unconditionally (it does NOT compare `data.path` to the current file) → a save re-renders `a.currentFile` (still set) → `showContent` re-shows it. ✓
+- **Implemented the fix:**
+  - `app.go`: new `CloseFile() string` bound method — clears `currentFile`, unwatches the file, resets the native window title. `currentFile` is cleared *before* the watcher teardown so a racing `file-changed` finds it empty.
+  - `events.go`: new `unwatchFile(abs)` helper (mirrors `watchFile`); calls `watcher.Unwatch` outside `a.mu` to avoid nesting the App and watcher mutexes.
+  - `menu.go`: File > Close now calls `app.CloseFile()` before emitting `close-file`.
+  - `frontend/dist/app.js`: the `close-file` handler now calls `MDSInitButtons()`, which (idempotently) removes the existing row and builds nothing since `GetCurrentFile()` returns `""`.
+  - `pkg/watcher/watcher.go`: added `Unwatch(filePath)` — removes the path from fsnotify and closes every subscriber channel, so the App goroutine exits. This is the "eviction on close" the diary Step 6 had deferred ("the `watched` map never has entries removed"). Safe because both the dispatch send in `Start()` and the close in `Unwatch` run under the same `fw.mu` (no send-on-closed-channel race).
+  - `pkg/watcher/watcher_test.go` (new): 3 tests — `TestUnwatchClosesChannel`, `TestUnwatchUnknownPathIsNoOp`, `TestUnwatchRemovesFromInternalMap`.
+
+### Why
+
+- The bug spanned the full stack, so a frontend-only fix would have left `currentFile` set and `ReopenCurrent()` re-showing the file. The backend clear is what actually closes the file; the frontend row removal is the visible consequence.
+- I added `watcher.Unwatch` rather than relying on clearing `currentFile` alone (which would have left the goroutine + fsnotify watch leaking forever). Eviction-on-close was already flagged as deferred work; this was the moment to do it.
+- Reusing `MDSInitButtons()` for the row removal (instead of a bespoke `document.getElementById(...).remove()`) keeps the button-row lifecycle in one place and handles the empty-`GetCurrentFile` case correctly (remove old, build nothing).
+
+### What worked
+
+- **E2E-verified the full open→close→late-save path** via `wails dev` + Playwright through the real event flow (`OpenFileAtPath` → emit `file-opened` → `showContent` builds the 3-button row → `CloseFile` → emit `close-file`). After close: `GetCurrentFile()==""`, `#md-view-button-row` removed, `ReopenCurrent()==""`, and writing to the **closed** file did **not** fire `file-changed` (watcher unwatched). Positive control: writing to an **open** file still reloads (`liveReloadFiredWhenOpen: true`).
+- `go test -tags webkit2_41 ./...` green (incl. 3 new watcher tests); `golangci-lint` 0 issues.
+
+### What didn't work
+
+- **First E2E attempt used the wrong open path.** Calling `OpenFileAtPath` directly returns HTML to JS but does NOT call `showContent` (only the `file-opened` event does), so the button row never built and `buttonRowPresent` was `false` even before close. Fixed by emitting `file-opened` after `OpenFileAtPath` to exercise the real `showContent` → `MDSInitButtons` path. Lesson: when verifying frontend side effects, drive them through the event the app actually uses, not the bound method's return value.
+
+### What I learned
+
+- `pkg/watcher` had no per-file unwatch — only `Close()` (whole watcher). Adding `Unwatch` is a clean, lock-safe extension (send + close both under `fw.mu`). The subscriber channel is the same object the caller holds as `<-chan struct{}`, so closing it from the watcher side makes the caller's `for range` exit — the standard Go "close to signal completion" pattern.
+- The frontend `file-changed` listener does NOT compare `data.path` to the current file; it just calls `ReopenCurrent()`. Clearing `currentFile` is therefore what makes a late save a no-op, even before unwatching. Unwatching is the belt; clearing `currentFile` is the suspenders.
+
+### What was tricky to build
+
+- **Lock ordering in `unwatchFile`.** I call `watcher.Unwatch` *outside* `a.mu` (delete from `a.watched` under `a.mu`, release, then unwatch). Nesting `a.mu` → `fw.mu` would be consistent with `watchFile` (which takes `a.mu` then `fw.mu` via `Watch`) and is safe, but calling outside avoids holding `a.mu` across the watcher's internal work. The brief window between the map delete and `Unwatch` is harmless because `CloseFile` already cleared `currentFile`.
+- **The racing `file-changed`.** Ordered `CloseFile` to clear `currentFile` *before* `unwatchFile` so that any event the watcher goroutine emits before it exits finds `currentFile==""` and `ReopenCurrent()` returns `""`.
+
+### What warrants a second pair of eyes
+
+- The pre-existing multi-open accumulation: opening A then B watches both (no unwatch of A on open B). A save to A emits `file-changed` → frontend calls `ReopenCurrent()` → re-renders B. This is NOT what this review comment is about (it's about Close), but it's a latent issue worth a follow-up: `openPath` should unwatch the previous `currentFile` when switching files. Tracked below.
+- The frontend `file-changed` listener ignoring `data.path` — a defense-in-depth compare to the current file would catch stray events, but with unwatch-on-close + clear-`currentFile` it's not strictly needed.
+
+### What should be done in the future
+
+- **Follow-up (latent, not this review):** in `openPath`, unwatch the previous `currentFile` before setting the new one, so switching files stops watching the old one (closes the multi-open accumulation and the "save A re-renders B" edge).
+- Optionally have the frontend `file-changed` listener compare `data.path` to the current file as defense-in-depth.
+
+### Code review instructions
+
+- `app.go`: `CloseFile() string` (clears state, unwatches, resets title).
+- `events.go`: `unwatchFile(abs)`.
+- `menu.go`: File > Close calls `app.CloseFile()` before emitting `close-file`.
+- `frontend/dist/app.js`: `close-file` handler calls `MDSInitButtons()`.
+- `pkg/watcher/watcher.go`: `Unwatch(filePath)`.
+- `pkg/watcher/watcher_test.go`: 3 new tests.
+- Validate: `go test -tags webkit2_41 ./pkg/watcher/... -v`; `wails dev` + Playwright open→close→late-save (GetCurrentFile ""→"" , button row removed, closed-file write does NOT reload, open-file write DOES).
+
+### Technical details
+
+- Commit (this step): `8322db1`.
+- PR reply: posted in-thread at `discussion_r3409639319`.
+- Wails watcher concurrency: dispatch send (`Start()`) and channel close (`Unwatch`) both under `fw.mu` → no send-on-closed race.
+
+## Step 18: Fix the multi-open watch-accumulation follow-up
+
+While tracing the Close fix (Step 17), I found a separate latent bug and noted it as a follow-up: `openPath` watched every file opened and never unwatched the previous one when switching. The user read the diary's "Next steps" note, asked what it was, then said to apply it. This step implements and tests the fix.
+
+### Prompt Context
+
+**User prompt (verbatim):** "fix the multi-open watch-accumulation follow-up <- what's that?" then "go ahead, apply"
+
+**Assistant interpretation:** (1) Explain the latent bug precisely (stray reload of the current file from a save to an unrelated file; fsnotify/goroutine leak across many opens). (2) Implement the fix in `openPath`: unwatch the previous `currentFile` before setting the new one.
+
+**Inferred user intent:** Close the follow-up that Step 17 surfaced, with the same rigor (code + tests + verification) as the review-driven fixes.
+
+### What I did
+
+- **Explained the bug first** (per the user's "what's that?"): traced the repro (open A → open B → A still watched → save A → `file-changed {path:A}` → frontend ignores `data.path` → `ReopenCurrent()` → B reloads) and the leak (goroutine + fsnotify watch per opened file, never reclaimed).
+- **Implemented the fix in `app.go` `openPath`** (~4 lines, before setting `currentFile`):
+  ```go
+  if old := a.currentFile; old != "" && old != abs {
+      a.unwatchFile(old)
+  }
+  a.currentFile = abs
+  a.watchFile(abs)
+  ```
+  Reuses the `unwatchFile` helper from Step 17. `openPath` is the only place `currentFile` changes except `CloseFile`, so this covers every file-switching entry point (menu Open, drag-drop, recent-files).
+- **Wrote `openpath_test.go`** with two tests that reproduce the exact watch/unwatch sequence `openPath` performs and assert the invariant against `a.watched`:
+  - `TestOpenPathUnwatchesPreviousFile`: open A → open B → A unwatched, B watched; reopening B is a no-op (A stays unwatched).
+  - `TestOpenPathKeepsSingleWatchAcrossManyOpens`: 5 distinct opens → exactly 1 file watched (no accumulation).
+
+### Why
+
+- `openPath` itself calls `runtime.WindowSetTitle(a.ctx, ...)` and panics with a nil ctx, so it can't be unit-tested directly. Testing the watch/unwatch *sequence* against `a.watched` is the right seam: it's exactly the invariant the fix changes, and it's observable without a Wails context.
+- The frontend `file-changed` listener ignoring `data.path` is what turns the stray watch into a visible symptom (B reloads). Fixing it at the backend (stop watching A) is the root-cause fix; adding a `data.path` compare in the frontend would be defense-in-depth but isn't necessary once the stray event can't be emitted.
+
+### What worked
+
+- Both tests pass on the first run; full suite green; `golangci-lint` 0 issues.
+- The downstream behavior (`unwatchFile` → `watcher.Unwatch` → no `file-changed`) was already E2E-verified in Step 17's close-fix (writing to a closed/unwatched file did not fire `file-changed`), so the chain is covered end to end.
+
+### What didn't work
+
+- **Could not E2E-verify via `wails dev` this turn.** The dev server kept dying: `setsid`, `nohup`, and `tmux` invocations all produced "Caught quit / Ctrl+C detected. Shutting down" within seconds, and the log showed "Overriding existing handler for signal 10" (SIGUSR1). Earlier in this session the same command worked, so this is an environment artifact this turn, not a code regression. Relied on the unit tests (which test the invariant directly) plus Step 17's E2E of the shared downstream path. Did NOT over-claim E2E in the commit message.
+
+### What I learned
+
+- The fix is tiny because the Step 17 work built the right primitive (`unwatchFile`). Close and switch are the two places `currentFile` transitions, and both now unwatch the old file — a clean symmetry that closes the watcher lifecycle.
+- Two independent symptoms from one root cause: the *stray reload* (visible UX bug) and the *leak* (resource bug) both vanish with one unwatch. That's a sign the root cause was correctly identified.
+
+### What was tricky to build
+
+- **Choosing the test seam.** The obvious test (`call openPath, check a.watched`) doesn't work because `openPath` needs a real Wails ctx. The alternative — extracting a `setCurrentFile(abs)` helper that does just the transition and is ctx-free — would be cleaner but adds a refactor beyond the fix's scope. Chose instead to have the test reproduce the exact transition sequence `openPath` performs, with a comment tying them together. If more `openPath` logic grows ctx-free, extracting the helper later is a good cleanup.
+
+### What warrants a second pair of eyes
+
+- The test reproduces the sequence but doesn't call `openPath` itself (it can't). Confirm the comment + the `openPath` code stay in sync if the transition logic moves.
+- The frontend `file-changed` listener still ignores `data.path`. With the backend fix this is benign (no stray events for non-current files), but a defense-in-depth compare is still a reasonable follow-up.
+
+### What should be done in the future
+
+- Optionally add a `data.path` compare in the frontend `file-changed` listener as defense-in-depth.
+- If `openPath` grows, extract a ctx-free `setCurrentFile(abs)` helper so the transition is directly unit-testable.
+- Re-verify E2E (open A → open B → save A → B does NOT reload) once the dev server is stable, to confirm the UX symptom is gone end to end.
+
+### Code review instructions
+
+- `app.go` `openPath`: unwatch-old-file block before `a.currentFile = abs`.
+- `openpath_test.go` (new): `TestOpenPathUnwatchesPreviousFile`, `TestOpenPathKeepsSingleWatchAcrossManyOpens`.
+- Validate: `go test -tags webkit2_41 -run TestOpenPath -v .`; (E2E, when dev server is stable) `wails dev` + Playwright: open A → open B → write to A → B must NOT reload.
+
+### Technical details
+
+- Commit (this step): `bff4d7d`.
+- Follow-up source: diary Step 17 "What should be done in the future."
+- Not a PR review comment (no Codex thread) — a self-identified follow-up the user asked to close.

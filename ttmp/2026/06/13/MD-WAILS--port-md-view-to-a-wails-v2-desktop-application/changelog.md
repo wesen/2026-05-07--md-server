@@ -1,0 +1,104 @@
+# Changelog
+
+## 2026-06-13
+
+- Initial workspace created
+- Added vocabulary topics: `wails`, `desktop`, `architecture`
+- Created design/implementation guide `design-impl-guide/01-...md` — intern-grade analysis of md-view (current) + Wails (target), gap analysis, proposed architecture, 6 decision records (DR-1..DR-6), pseudocode/flows, 8-phase file-level plan, test strategy, risks/open questions
+- Created investigation diary `reference/01-investigation-diary.md`
+- Related 8 key files (md-view renderer/server/watcher/daemon/protocol + wails-demo main/app + Wails article) to the design doc
+- Key decisions recorded: DR-1 retire daemon/protocol/server, keep renderer; DR-2 coexistence (new `wailsapp/` entry, CLI untouched); DR-3 split `Render` into `RenderBody`/page; DR-4 pre-generate Chroma CSS; DR-5 image serving via `AssetServer.Handler`; DR-6 vanilla-JS frontend
+
+## 2026-06-13
+
+Uploaded bundle (design guide + diary + index) to reMarkable /ai/2026/06/13/MD-WAILS
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-05-07--md-server/ttmp/2026/06/13/MD-WAILS--port-md-view-to-a-wails-v2-desktop-application/design-impl-guide/01-wails-port-analysis-design-and-implementation-guide.md — Primary deliverable uploaded to reMarkable
+
+
+## 2026-06-13
+
+Added sources/ folder: captured Wails SingleInstanceLock API (options.go source), Cobra+Wails discussion #1271, CLI-with-app discussion #3098 — all self-contained with provenance
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-05-07--md-server/ttmp/2026/06/13/MD-WAILS--port-md-view-to-a-wails-v2-desktop-application/sources/README.md — Index of captured reference materials
+
+
+## 2026-06-13
+
+SCOPE REVISION (v2): changed from coexistence (two binaries) to DROP-IN REPLACEMENT — single md-view binary, CLI compatible (view + --dark preserved; serve/stop/status removed). SingleInstanceLock replaces daemon/socket/PID. Added DR-7 (SingleInstanceLock) and DR-8 (flag trimming). Restructured phases (Phase 6 single-instance dispatch, Phase 7 cutover/deletion).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-05-07--md-server/ttmp/2026/06/13/MD-WAILS--port-md-view-to-a-wails-v2-desktop-application/design-impl-guide/01-wails-port-analysis-design-and-implementation-guide.md — Rewritten to replacement scope
+
+
+## 2026-06-13
+
+Added sources/01..03 (SingleInstanceLock API, Cobra discussion #1271, CLI-with-app #3098) + 00-sources-index; related to design doc
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-05-07--md-server/ttmp/2026/06/13/MD-WAILS--port-md-view-to-a-wails-v2-desktop-application/sources/01-wails-single-instance-lock-api.md — Core drop-in mechanism
+
+
+## 2026-06-13
+
+Added implementation review / lessons-learned document for a new maintainer or intern; captures subsystem map, review scorecard, strengths, weaknesses, stale-docs finding, build/release lessons, and recommended next learning/follow-up work.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-05-07--md-server/ttmp/2026/06/13/MD-WAILS--port-md-view-to-a-wails-v2-desktop-application/design-doc/01-implementation-review-and-lessons-learned.md — Post-implementation technical review deliverable
+
+
+## 2026-06-14
+
+Phase 9 (documentation cutover): rewrote README.md, docs/getting-started.md, docs/user-guide.md to match the single-binary Wails model. Removed docs for deleted subsystems (HTTP API, Unix Socket Protocol, Daemon Management, browser selection, serve/status/stop, --browser/--no-reload/--port flags). Install now leads with make build (NOT go install .../cmd/md-view). Verified AGENT.md is clean (historical refs only). grep validation (task 9.7) passes: zero live operational references to the old model. Also marked Phase 8 done in tasks.md (was implemented but unchecked).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-05-07--md-server/AGENT.md — Verified clean — only historical daemon/socket refs explaining the cutover (no rewrite needed)
+- /home/manuel/code/wesen/2026-05-07--md-server/README.md — Rewritten for the Wails single-binary model (install via make build
+- /home/manuel/code/wesen/2026-05-07--md-server/docs/getting-started.md — Rewritten — native window first view
+- /home/manuel/code/wesen/2026-05-07--md-server/docs/user-guide.md — Major surgery — removed HTTP API/Unix Socket/Daemon Management/browser-selection/serve-status-stop; rewrote view/Dark Theme/Live Reload/Security/Troubleshooting for Wails
+
+
+## 2026-06-14
+
+Addressed PR #2 Codex review (3 P2 comments on app.go): (1) drag-drop was non-functional — registered runtime.OnFileDrop in Startup (EnableFileDrop only arms the plumbing); (2) parent-relative images (../assets/x.png) returned 403 — addAllowedDirTree now registers the file's dir + ancestors except root, so ../images load while /etc/passwd stays 403; (3) relative paths broke the macOS single-instance handoff (Wails sets WorkingDirectory to the executable dir on Darwin) — absolutizeFileArg resolves + rewrites os.Args in the invoking process. Added 4 unit tests. Verified ../assets->200/passwd->403; build/test/lint green; native Startup runs clean. Commit e680fc0.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-05-07--md-server/app.go — Startup now registers runtime.OnFileDrop(ctx
+- /home/manuel/code/wesen/2026-05-07--md-server/assets.go — addAllowedDirTree registers dir + ancestors excluding filesystem root (../images fix
+- /home/manuel/code/wesen/2026-05-07--md-server/cli.go — absolutizeFileArg resolves relative paths + rewrites os.Args before wails.Run (macOS single-instance handoff fix)
+- /home/manuel/code/wesen/2026-05-07--md-server/cli_test.go — 4 new tests (absolutizeFileArg x3
+- /home/manuel/code/wesen/2026-05-07--md-server/main.go — runDesktop calls absolutizeFileArg so PendingOpen is absolute and forwarded args are absolute
+
+
+## 2026-06-14
+
+Addressed 4th PR #2 Codex review comment (frontend/dist/app.js close-file handler): File > Close only hid the DOM, leaving App.currentFile set, the watcher running, and the #md-view-button-row in place (toolbar still targeted the old file; a save re-showed it via ReopenCurrent). Fix: new CloseFile() bound method (app.go) clears currentFile + unwatches + resets title; menu.go calls it before emitting close-file; frontend close-file handler calls MDSInitButtons() to remove the button row; new pkg/watcher Unwatch (the eviction-on-close deferred in diary Step 6) + 3 unit tests. E2E verified: after close GetCurrentFile==", button row gone, ReopenCurrent==", closed-file write does NOT reload; open-file write still does. Commit 8322db1.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-05-07--md-server/app.go — CloseFile() clears currentFile
+- /home/manuel/code/wesen/2026-05-07--md-server/events.go — unwatchFile(abs) mirrors watchFile; calls watcher.Unwatch outside a.mu
+- /home/manuel/code/wesen/2026-05-07--md-server/frontend/dist/app.js — close-file handler calls MDSInitButtons() to remove the toolbar button row
+- /home/manuel/code/wesen/2026-05-07--md-server/menu.go — File > Close now calls app.CloseFile() before emitting close-file
+- /home/manuel/code/wesen/2026-05-07--md-server/pkg/watcher/watcher.go — Unwatch(filePath) removes from fsnotify + closes subscriber channels (eviction-on-close
+- /home/manuel/code/wesen/2026-05-07--md-server/pkg/watcher/watcher_test.go — new — 3 tests for Unwatch
+
+
+## 2026-06-14
+
+Fixed the multi-open watch-accumulation follow-up (diary Step 17 flagged it): openPath watched every file opened and never unwatched the previous one when switching. Two symptoms -- (1) stray reload: open A then B, save A -> file-changed{path:A} -> frontend ignores data.path -> ReopenCurrent re-renders B; (2) leak: per-opened-file goroutine + fsnotify watch for the app's lifetime (Linux inotify is bounded). Fix: openPath unwatches the previous currentFile before setting the new one (~4 lines, reuses the unwatchFile helper from Step 17). Added openpath_test.go (2 tests: switch unwatches old, no accumulation across 5 opens). build/test/lint green. Dev server was unstable this turn (signal 10/SIGUSR1 killed wails dev) so no fresh E2E, but the downstream unwatch->no-file-changed path was E2E-verified in Step 17. Commit bff4d7d.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-05-07--md-server/app.go — openPath now unwatches the previous currentFile before switching (fixes stray reload + fsnotify/goroutine leak across opens)
+- /home/manuel/code/wesen/2026-05-07--md-server/openpath_test.go — new -- tests the watch/unwatch sequence openPath performs (switch unwatch
+
