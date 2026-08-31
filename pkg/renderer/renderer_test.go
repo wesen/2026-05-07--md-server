@@ -442,6 +442,9 @@ func TestRenderIncludesMathJaxScripts(t *testing.T) {
 	if !contains(html, "MDSMathTypeset") {
 		t.Error("Render() should include the post-startup typeset call")
 	}
+	if !contains(html, `async onload="window.MDSMathTypeset();"`) {
+		t.Error("Render() should typeset after the async MathJax script loads")
+	}
 	// Config must come before the library in the document. Match the actual
 	// script tag, not the bare filename (the config file's comments also
 	// mention the filename).

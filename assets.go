@@ -36,6 +36,23 @@ func (a *App) addAllowedDirTree(dir string) {
 	}
 }
 
+// restoreAbsoluteFilePath reconstructs the filesystem path encoded in a
+// /file/ request. Unix paths omit their leading slash in the URL, while a
+// Windows drive-qualified path (C:/...) is already absolute and must retain
+// that shape.
+func restoreAbsoluteFilePath(target string) string {
+	if isWindowsDrivePath(target) || strings.HasPrefix(target, string(filepath.Separator)) {
+		return target
+	}
+	return string(filepath.Separator) + target
+}
+
+func isWindowsDrivePath(path string) bool {
+	return len(path) >= 3 &&
+		((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) &&
+		path[1] == ':' && (path[2] == '/' || path[2] == '\\')
+}
+
 // isAllowed reports whether absPath is a regular file inside one of the
 // allowed directories. The "+separator" prefix check prevents a directory
 // named e.g. /tmp/foo from authorizing /tmp/foobar (an adjacent dir).
@@ -64,15 +81,15 @@ func (a *App) ServeReferencedFile(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	// /file/<abs-path-without-leading-slash> -> /<abs-path>
+	// /file/<abs-path-without-leading-slash> -> /<abs-path>. Windows drive
+	// roots are already absolute without a leading slash (for example,
+	// C:/docs/image.png), so do not turn them into /C:/... paths.
 	target := strings.TrimPrefix(r.URL.Path, "/file/")
 	if target == "" {
 		http.NotFound(w, r)
 		return
 	}
-	if !strings.HasPrefix(target, "/") {
-		target = "/" + target
-	}
+	target = restoreAbsoluteFilePath(target)
 
 	absPath, err := filepath.Abs(target)
 	if err != nil {

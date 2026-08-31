@@ -34,7 +34,20 @@ window.MathJax = {
 // Safe to call repeatedly; silently no-ops if MathJax is not loaded.
 window.MDSMathTypeset = function () {
     var content = document.getElementById('content') || document.body;
-    if (typeof MathJax === 'undefined' || !MathJax.typesetPromise) {
+    if (typeof MathJax === 'undefined') {
+        return Promise.resolve();
+    }
+    // MathJax may have loaded its script but still be completing startup.
+    // Wait for startup before looking up typesetPromise so an onload call is
+    // reliable as well as calls made after later content swaps.
+    if (!MathJax.typesetPromise) {
+        if (MathJax.startup && MathJax.startup.promise) {
+            return MathJax.startup.promise.then(function () {
+                return window.MDSMathTypeset();
+            }).catch(function (err) {
+                console.error('MathJax startup error:', err);
+            });
+        }
         return Promise.resolve();
     }
     return MathJax.typesetPromise([content]).catch(function (err) {

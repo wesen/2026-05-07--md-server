@@ -735,12 +735,7 @@ new MDSReloader("http://localhost:%d/events?file=%s");
 	mathjaxScript := fmt.Sprintf(`<script>
 %s
 </script>
-<script src="http://localhost:%d/static/mathjax.min.js"></script>
-<script>
-if (window.MathJax && MathJax.startup) {
-    MathJax.startup.promise.then(function() { return window.MDSMathTypeset(); });
-}
-</script>`, string(mathjaxConfigJS), opts.Port)
+<script src="http://localhost:%d/static/mathjax.min.js" async onload="window.MDSMathTypeset();"></script>`, string(mathjaxConfigJS), opts.Port)
 	// Copy-to-clipboard script
 	copyButtonScript := fmt.Sprintf(`<script>
 %s
