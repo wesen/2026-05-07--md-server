@@ -67,3 +67,8 @@ Follow-ups: sidebar toggle off-by-default + clip-article button (58568c7); fixed
 
 - /home/manuel/code/wesen/2026-05-07--md-server/frontend/dist/app.js — sidebar toggle persistence
 
+
+## 2026-08-31
+
+Ticket closed
+

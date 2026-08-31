@@ -1,7 +1,7 @@
 ---
 Title: Add MathJax support and paragraph soft-wrapping to md-view
 Ticket: MD-MATH-SOFTWRAP--mathjax-rendering-and-paragraph-soft-wrapping
-Status: active
+Status: complete
 Topics:
     - md-view
     - renderer
@@ -14,10 +14,11 @@ Owners: []
 RelatedFiles: []
 ExternalSources: []
 Summary: ""
-LastUpdated: 2026-08-31T13:44:45.58287519-04:00
+LastUpdated: 2026-08-31T14:40:16.982474987-04:00
 WhatFor: ""
 WhenToUse: ""
 ---
+
 
 # Add MathJax support and paragraph soft-wrapping to md-view
 
