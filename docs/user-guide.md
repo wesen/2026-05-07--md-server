@@ -13,6 +13,8 @@ Everything you need to know about md-view — commands, flags, rendering, integr
   - [Markdown Features](#markdown-features)
   - [Syntax Highlighting](#syntax-highlighting)
   - [Mermaid Diagrams](#mermaid-diagrams)
+  - [LaTeX Math](#latex-math)
+  - [Paragraph Wrapping](#paragraph-wrapping)
   - [YAML Frontmatter](#yaml-frontmatter)
   - [Window Titles](#window-titles)
 - [Dark Theme](#dark-theme)
@@ -155,6 +157,34 @@ The diagram renders as an SVG directly in the window. Mermaid.js is **embedded i
 **Theme switching:** When you toggle the dark theme, Mermaid diagrams are automatically re-rendered with the corresponding theme (`default` for light, `dark` for dark mode).
 
 **How it works:** goldmark renders ` ```mermaid ` blocks as fenced code. The frontend's augmentation pass converts these into rendered SVGs every time content is swapped into the window.
+
+### LaTeX Math
+
+md-view renders LaTeX math with [MathJax](https://www.mathjax.org/). Inline math goes between single dollars, display math between double dollars:
+
+````markdown
+The rate is $\nu_i \sim N(-0.15, 1.0)$ and the variance is
+$\operatorname{Var}(Y_i \mid \mu_i) = \mu_i + \mu_i^2/\phi$.
+
+$$
+E[X] = \sum_i x_i \, p_i
+$$
+````
+
+MathJax is **embedded in the md-view binary** (tex-svg component) — no network access is required. Math is typeset after every file open and live reload.
+
+Notes:
+
+- Code blocks and inline code are never scanned, so `$VAR` in a shell snippet or `$100` in prose-plus-code stays literal.
+- `\$` writes a literal dollar sign in normal text.
+- Long display equations scroll horizontally instead of overflowing on narrow windows.
+- Math colors follow the theme (it uses the text color).
+
+**How it works:** goldmark passes `$...$` through verbatim; the frontend's augmentation pass calls `MathJax.typesetPromise` on the content area after every content swap.
+
+### Paragraph Wrapping
+
+A single newline inside a paragraph is a **soft wrap**: it renders as a space and the paragraph reflows to the window width (CommonMark / GitHub behavior). To force a line break, end the line with two trailing spaces (or a backslash). Previously md-view turned every newline into a hard `<br>`, which produced jagged, staircase-shaped paragraphs on narrow windows.
 
 ### YAML Frontmatter
 
