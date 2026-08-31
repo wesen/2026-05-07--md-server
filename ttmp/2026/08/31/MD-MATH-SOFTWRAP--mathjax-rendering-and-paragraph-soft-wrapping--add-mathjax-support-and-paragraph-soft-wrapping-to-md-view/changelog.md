@@ -31,3 +31,12 @@ Phase 2: vendored MathJax v3 tex-svg + config, go:embed + getters, synced to fro
 
 - /home/manuel/code/wesen/2026-05-07--md-server/pkg/renderer/renderer.go — mathjax embeds
 
+
+## 2026-08-31
+
+Phase 3: MathJax wired into desktop frontend (index.html, augment.js initMathTypeset, CSS); browser-verified (commit 9224848)
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-05-07--md-server/frontend/dist/augment.js — typeset after content swaps
+

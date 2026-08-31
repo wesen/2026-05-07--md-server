@@ -9,6 +9,10 @@ Owners: []
 RelatedFiles:
     - Path: abs:///home/manuel/code/wesen/2026-08-31--bayesian-marketing/artifacts/report-day1.md
       Note: example math corpus motivating the ticket
+    - Path: repo://frontend/dist/augment.js
+      Note: initMathTypeset + startup.promise race handling (commit 9224848)
+    - Path: repo://frontend/dist/index.html
+      Note: mathjax script tag order (commit 9224848)
     - Path: repo://pkg/renderer/renderer.go
       Note: |-
         root cause WithHardWraps found here
@@ -23,6 +27,7 @@ LastUpdated: 0001-01-01T00:00:00Z
 WhatFor: ""
 WhenToUse: ""
 ---
+
 
 
 
@@ -239,3 +244,77 @@ loaded from a CDN. tex-svg avoids font-file loading races (DR-3).
 ### Technical details
 - CDN source: https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js
 - MD5 in repo; treat as vendored third-party code (do not hand-edit).
+
+## Step 4: Phase 3 — desktop frontend wiring
+
+This step wired MathJax into the desktop page chrome: script tags in
+`index.html`, an `initMathTypeset()` hook in `augment.js` called from
+`MDSAugmentPage()`, and math CSS for display-equation overflow. The wiring
+was verified end-to-end in a real browser (Python http.server over
+frontend/dist + Playwright), not just by inspection.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 2)
+
+**Commit (code):** 9224848 — "feat(frontend): wire MathJax into the desktop app"
+
+### What I did
+- `frontend/dist/index.html`: added `<script src="mathjax-config.js">` BEFORE
+  `<script src="mathjax.min.js" async>` (config-before-library ordering).
+- `frontend/dist/augment.js`: added `initMathTypeset()` with the
+  `MathJax.startup.promise` fallback for the async-load race; called it from
+  `MDSAugmentPage()`.
+- Appended MathJax CSS to `pkg/renderer/static/base.css` (display equations
+  scroll horizontally) and `dark.css` (currentColor inheritance), copied
+  both to `frontend/dist/`.
+- `make build` succeeds (binary builds with embedded assets).
+- Browser verification: `python3 -m http.server 8901` in frontend/dist +
+  Playwright: injected content with inline math, display math, a `<pre><code>`
+  block containing `$NOTMATH`, and inline code `$y=1$`. Result:
+  `mjxCount: 2`, `codeUntouched: true`, `inlineCodeUntouched: true`,
+  `mathJaxLoaded: true`.
+
+### Why
+The Wails frontend swaps `#content.innerHTML` per file/reload; MathJax must
+re-typeset after every swap, scoped to `#content`, idempotently.
+
+### What worked
+- Exact copy of the augment.js contract; browser test proved skipHtmlTags
+  protects code blocks without any Go-side work.
+
+### What didn't work
+- Tried to trigger the real async race (swap before MathJax ready) by
+  reloading and immediately swapping; MathJax loads too fast from localhost
+  (`wasReadyAtSwap: true`), so the `startup.promise` branch was not exercised
+  end-to-end — only by code review.
+
+### What I learned
+- MathJax v3 resolves `window.MathJax` config at library load, so the config
+  script tag order is a hard constraint, not a convention.
+- `pkill -f "http.server 8901"` killed the agent's own bash shell (the
+  command string matched the pattern) — the Phase-3 commit initially never
+  ran; had to re-run it after noticing `git log` was unchanged.
+
+### What was tricky to build
+- The startup race: `mathjax.min.js` is `async`, and `OnDomReady` opens the
+  first file potentially before MathJax finishes loading. Solved by chaining
+  the typeset through `MathJax.startup.promise` when `typesetPromise` is not
+  yet present.
+
+### What warrants a second pair of eyes
+- The un-exercised `startup.promise` branch (see "What didn't work"). A
+  slow-disk or throttled-CPU first launch is the scenario it guards.
+
+### What should be done in the future
+- Optionally add a Playwright e2e test with script-load throttling to cover
+  the race branch.
+
+### Code review instructions
+- `frontend/dist/index.html` script order; `frontend/dist/augment.js`
+  `initMathTypeset`.
+- Validate: serve frontend/dist over http and check `mjx-container` appears
+  after `MDSAugmentPage()`.
+
+### Technical details
+- Verified with Playwright evaluate: see "What I did" for the exact results.
