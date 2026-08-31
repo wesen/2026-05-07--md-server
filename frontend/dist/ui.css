@@ -131,7 +131,8 @@
     color: #1a7f37 !important;
     opacity: 1 !important;
 }
-.md-view-copy-path-btn { right: 160px; }
+.md-view-copy-path-btn { right: 200px; }
+.md-view-copy-article-btn { right: 160px; }
 .md-view-download-btn { right: 120px; }
 .md-view-remarkable-btn:disabled {
     cursor: wait;

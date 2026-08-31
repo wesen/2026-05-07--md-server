@@ -55,16 +55,45 @@
     function buildRow(filePath, App) {
         var row = document.createElement('div');
         row.id = 'md-view-button-row';
-        // Position the row fixed top-right, beside the theme toggle.
-        row.style.cssText = 'position:fixed;top:12px;right:48px;z-index:100;display:flex;gap:6px;';
+        // Layout (fixed position below the app toolbar, buttons in a flex
+        // row) is defined in style.css under #md-view-button-row: the
+        // ui.css per-button fixed offsets apply only to the legacy
+        // full-page renderer, not here.;
 
-        // --- Copy path ---
+        // --- Copy path (clip path) ---
         var copyBtn = el('md-view-copy-path-btn', 'Copy file path to clipboard', clipboardIcon);
         copyBtn.addEventListener('click', function () {
             navigator.clipboard.writeText(filePath).then(function () {
                 copyBtn.innerHTML = checkIcon;
                 copyBtn.classList.add('md-view-toolbar-btn-success');
                 setTimeout(function () { copyBtn.innerHTML = clipboardIcon; copyBtn.classList.remove('md-view-toolbar-btn-success'); }, 2000);
+            });
+        });
+
+        // --- Copy entire article (markdown source) ---
+        var articleIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
+        var articleBtn = el('md-view-copy-article-btn', 'Copy entire article to clipboard', articleIcon);
+        articleBtn.addEventListener('click', function () {
+            App.RawFile(filePath).then(function (data) {
+                // Wails JSON-marshals Go []byte as a base64 string; decode it.
+                var text;
+                if (typeof data === 'string') {
+                    var bin = atob(data);
+                    var bytes = new Uint8Array(bin.length);
+                    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                    text = new TextDecoder().decode(bytes);
+                } else if (data && data.byteLength !== undefined) {
+                    text = new TextDecoder().decode(data);
+                } else {
+                    text = String(data);
+                }
+                return navigator.clipboard.writeText(text);
+            }).then(function () {
+                articleBtn.innerHTML = checkIcon;
+                articleBtn.classList.add('md-view-toolbar-btn-success');
+                setTimeout(function () { articleBtn.innerHTML = articleIcon; articleBtn.classList.remove('md-view-toolbar-btn-success'); }, 2000);
+            }).catch(function (e) {
+                toast('✗ Copy failed: ' + e, 5000, 'md-view-remarkable-toast-error');
             });
         });
 
@@ -104,6 +133,7 @@
         });
 
         row.appendChild(copyBtn);
+        row.appendChild(articleBtn);
         row.appendChild(dlBtn);
         row.appendChild(rmBtn);
         document.body.appendChild(row);

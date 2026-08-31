@@ -338,3 +338,30 @@ body {
 #main::-webkit-scrollbar-thumb:hover {
     background-color: var(--text-secondary);
 }
+
+/* Recent-files toggle button active state (sidebar shown) */
+#recent-btn.active {
+    background-color: var(--bg-secondary);
+    border-color: var(--text-secondary);
+}
+
+/* ---- Fixed toolbar button row (copy-path / copy-article / download / reMarkable) ----
+   Buttons are created by buttons.js. They must NOT use the per-button fixed
+   offsets from ui.css (those are for the legacy full-page renderer where the
+   buttons are appended directly to <body>); here they flow inside a flex row
+   positioned below the app toolbar, so nothing overlaps. */
+#md-view-button-row {
+    position: fixed;
+    top: 49px; /* below the 41px app toolbar */
+    right: 12px;
+    z-index: 100;
+    display: flex;
+    gap: 6px;
+}
+
+#md-view-button-row .md-view-toolbar-btn {
+    position: static;
+    top: auto;
+    right: auto;
+    opacity: 0.85;
+}

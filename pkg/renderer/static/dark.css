@@ -74,3 +74,9 @@
 [data-theme="dark"] .md-view-copy-btn-success {
     color: #3fb950 !important;
 }
+
+/* MathJax (MD-MATH-SOFTWRAP): math inherits currentColor, so it follows the
+   body text color in dark mode automatically. Nothing else needed yet. */
+[data-theme="dark"] mjx-container {
+    color: inherit;
+}

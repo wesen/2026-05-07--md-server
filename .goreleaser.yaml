@@ -8,15 +8,13 @@ before:
     # Regenerate the frontend CSS that wails build embeds.
     - go run -tags webkit2_41 ./cmd/gen-chroma-css
 builds:
-  - id: md-view-linux
+  - id: md-view-linux-amd64
     env:
       - CGO_ENABLED=1
-      - CC_linux_amd64=gcc
-      - CXX_linux_amd64=g++
-      - CC_linux_arm64=aarch64-linux-gnu-gcc
-      - CXX_linux_arm64=aarch64-linux-gnu-g++
-      - 'CC={{ index .Env (print "CC_" .Os "_" .Arch) }}'
-      - 'CXX={{ index .Env (print "CXX_" .Os "_" .Arch) }}'
+      - CC=gcc
+      - CXX=g++
+      # Select the native WebKitGTK pkg-config files.
+      - PKG_CONFIG_LIBDIR=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
     main: .
     binary: md-view
     # Wails requires its build tags (a raw go build refuses to start).
@@ -26,7 +24,6 @@ builds:
       - linux
     goarch:
       - amd64
-      - arm64
   - id: md-view-darwin
     env:
       - CGO_ENABLED=1

@@ -33,6 +33,12 @@ var mermaidInitJS []byte
 //go:embed static/mermaid.min.js
 var mermaidJS []byte
 
+//go:embed static/mathjax.min.js
+var mathjaxJS []byte
+
+//go:embed static/mathjax-config.js
+var mathjaxConfigJS []byte
+
 //go:embed static/copy-button.js
 var copyButtonJS []byte
 
@@ -60,6 +66,18 @@ func ReloadJS() []byte {
 // MermaidJS returns the embedded mermaid.js library.
 func MermaidJS() []byte {
 	return mermaidJS
+}
+
+// MathjaxJS returns the embedded MathJax v3 library (tex-svg component).
+func MathjaxJS() []byte {
+	return mathjaxJS
+}
+
+// MathjaxConfigJS returns the MathJax configuration + MDSMathTypeset script.
+// It must be included BEFORE the MathJax library itself, because MathJax v3
+// reads window.MathJax at library load time.
+func MathjaxConfigJS() []byte {
+	return mathjaxConfigJS
 }
 
 // CopyButtonJS returns the embedded copy-to-clipboard script.
@@ -420,7 +438,8 @@ func themeCSS(dark bool) string {
     color: #1a7f37 !important;
     opacity: 1 !important;
 }
-.md-view-copy-path-btn { right: 160px; }
+.md-view-copy-path-btn { right: 200px; }
+.md-view-copy-article-btn { right: 160px; }
 .md-view-download-btn { right: 120px; }
 .md-view-remarkable-btn:disabled {
     cursor: wait;
@@ -631,7 +650,11 @@ func RenderBody(filePath string, opts Options) (*BodyHTML, error) {
 			),
 		),
 		goldmark.WithRendererOptions(
-			html.WithHardWraps(),
+			// Soft wrapping: a single newline inside a paragraph is a space
+			// (CommonMark semantics). A hard break still requires two trailing
+			// spaces or a trailing backslash, which goldmark handles in the parser.
+			// The old html.WithHardWraps() produced jagged, staircase-shaped
+			// paragraphs on narrow/mobile viewports.
 			html.WithXHTML(),
 		),
 	)
@@ -705,6 +728,14 @@ new MDSReloader("http://localhost:%d/events?file=%s");
 %s
 </script>`, opts.Port, string(mermaidInitJS))
 
+	// MathJax script (detects $...$ / $$...$$ and typesets them)
+	// The config MUST come before the library: MathJax v3 reads window.MathJax
+	// at load time. The library is served from the daemon at
+	// /static/mathjax.min.js, same as mermaid.min.js.
+	mathjaxScript := fmt.Sprintf(`<script>
+%s
+</script>
+<script src="http://localhost:%d/static/mathjax.min.js" async onload="window.MDSMathTypeset();"></script>`, string(mathjaxConfigJS), opts.Port)
 	// Copy-to-clipboard script
 	copyButtonScript := fmt.Sprintf(`<script>
 %s
@@ -787,6 +818,7 @@ new MDSReloader("http://localhost:%d/events?file=%s");
 %s
 %s
 %s
+%s
 </body>
 </html>`,
 		htmlThemeAttr,
@@ -799,6 +831,7 @@ new MDSReloader("http://localhost:%d/events?file=%s");
 		fmHTML,
 		body.Body,
 		mermaidScript,
+		mathjaxScript,
 		reloadScript+themeToggleScript+copyButtonScript+remarkableButtonScript+toolbarButtonsScript,
 	)
 

@@ -23,6 +23,16 @@ topics:
       description: Native desktop applications (WebView-based)
     - slug: architecture
       description: System architecture and design
+    - slug: md-view
+      description: The md-view Markdown viewer application
+    - slug: renderer
+      description: Markdown to HTML rendering pipeline
+    - slug: frontend
+      description: Frontend JS/CSS of the Wails desktop app
+    - slug: mathjax
+      description: MathJax LaTeX math rendering
+    - slug: typography
+      description: Text layout and wrapping behavior
 docTypes:
     - slug: design-doc
       description: Structured rationale and architecture notes

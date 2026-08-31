@@ -118,6 +118,26 @@ func TestAbsolutizeFileArgEmpty(t *testing.T) {
 	}
 }
 
+func TestRestoreAbsoluteFilePath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "unix path", path: "home/user/image.png", want: "/home/user/image.png"},
+		{name: "unix absolute path", path: "/home/user/image.png", want: "/home/user/image.png"},
+		{name: "windows drive path", path: "C:/docs/image.png", want: "C:/docs/image.png"},
+		{name: "windows drive path with backslashes", path: `D:\docs\image.png`, want: `D:\docs\image.png`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := restoreAbsoluteFilePath(tt.path); got != tt.want {
+				t.Errorf("restoreAbsoluteFilePath(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestAddAllowedDirTree verifies the allow-list registers a directory and its
 // ancestors but NEVER the filesystem root — so /etc/passwd stays forbidden
 // even after a file deep under /home/... is opened.

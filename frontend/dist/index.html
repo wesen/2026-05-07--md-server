@@ -20,6 +20,7 @@
     <div id="toolbar">
         <button id="open-btn" title="Open File (Ctrl+O)">📂 Open</button>
         <span id="filename">No file open</span>
+        <button id="recent-btn" title="Toggle Recent Files sidebar">🕘 Recent</button>
         <button id="theme-btn" title="Toggle Theme">🌙 Dark</button>
     </div>
 
@@ -53,7 +54,11 @@
     <script src="/wails/runtime.js"></script>
     <!-- Mermaid diagram library -->
     <script src="mermaid.min.js"></script>
-    <!-- Content augmentation: copy buttons + mermaid (re-runnable after content swaps) -->
+    <!-- MathJax config MUST load before the library (v3 reads window.MathJax at load) -->
+    <script src="mathjax-config.js"></script>
+    <!-- MathJax v3 (tex-svg): math rendering; async so app startup is not blocked -->
+    <script src="mathjax.min.js" async></script>
+    <!-- Content augmentation: copy buttons + mermaid + math (re-runnable after content swaps) -->
     <script src="augment.js"></script>
     <!-- Fixed-position toolbar buttons (reMarkable / copy-path / download) -->
     <script src="buttons.js"></script>

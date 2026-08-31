@@ -34,6 +34,8 @@ That's it. A native window opens showing the rendered Markdown. Edit the file, a
 - **GitHub-flavored rendering** — tables, task lists, fenced code blocks, strikethrough
 - **Syntax highlighting** — 200+ languages, rendered in-process via Chroma (no JS required)
 - **Mermaid diagrams** — ` ```mermaid ` blocks rendered as SVG, works offline (mermaid.js is embedded)
+- **Math rendering** — LaTeX math via `$...$` (inline) and `$$...$$` (display), typeset by MathJax (embedded, works offline)
+- **Soft-wrapped paragraphs** — single newlines inside a paragraph render as spaces (CommonMark), so paragraphs reflow to the window width; use two trailing spaces for a hard break
 - **Dark theme** — toggle button or `--dark` flag; code highlighting switches too
 - **Live reload** — the view refreshes when the file changes on disk
 - **Relative images** — `![](images/x.png)` resolves against the file's directory (served through an allow-listed handler)

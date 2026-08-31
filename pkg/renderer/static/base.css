@@ -165,3 +165,19 @@
     color: #1a7f37 !important;
     opacity: 1 !important;
 }
+
+/* MathJax (MD-MATH-SOFTWRAP): long display equations scroll horizontally
+   instead of overflowing the page on narrow/mobile viewports. */
+mjx-container[jax="SVG"],
+mjx-container[jax="CHTML"] {
+    outline: none;
+}
+mjx-container[jax="SVG"][display="true"],
+mjx-container[jax="CHTML"][display="true"] {
+    display: block;
+    margin: 1em 0;
+    text-align: center;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 2px 0;
+}

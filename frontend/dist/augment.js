@@ -108,9 +108,40 @@
         try { mermaid.run({ nodes: Array.prototype.slice.call(divs) }); } catch (e) { console.error('Mermaid re-render error:', e); }
     };
 
+    // --- MathJax: typeset $...$ / $$...$$ after content swaps ---
+    // mathjax.min.js is loaded async, so on the very first swap (file opened
+    // at app startup) the library may not be ready yet. Chain through
+    // MathJax.startup.promise, which resolves once MathJax is initialized.
+    // Silently no-ops when MathJax is absent (e.g. stripped build).
+    function initMathTypeset() {
+        // The MathJax script is async. If the first file is opened before it
+        // executes, the config object exists but has no startup promise yet.
+        // Registering on the script element closes that startup race and
+        // typesets whichever document is currently displayed when it loads.
+        var script = document.querySelector('script[src*="mathjax.min.js"]');
+        if (script && !script.hasAttribute('data-md-view-typeset-bound')) {
+            script.setAttribute('data-md-view-typeset-bound', 'true');
+            script.addEventListener('load', function () {
+                window.MDSMathTypeset();
+            });
+        }
+
+        if (typeof MathJax === 'undefined') return;
+        if (MathJax.typesetPromise) {
+            window.MDSMathTypeset();
+            return;
+        }
+        if (MathJax.startup && MathJax.startup.promise) {
+            MathJax.startup.promise.then(function () {
+                window.MDSMathTypeset();
+            });
+        }
+    }
+
     // Main entry point: call after every content swap.
     window.MDSAugmentPage = function () {
         initCopyButtons();
         initMermaid();
+        initMathTypeset();
     };
 })();
