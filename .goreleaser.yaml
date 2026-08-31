@@ -24,21 +24,6 @@ builds:
       - linux
     goarch:
       - amd64
-  - id: md-view-linux-arm64
-    env:
-      - CGO_ENABLED=1
-      - CC=aarch64-linux-gnu-gcc
-      - CXX=aarch64-linux-gnu-g++
-      # Select the arm64 WebKitGTK sysroot installed by release.yaml.
-      - PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig
-    main: .
-    binary: md-view
-    flags:
-      - -tags=webkit2_41,desktop,production
-    goos:
-      - linux
-    goarch:
-      - arm64
   - id: md-view-darwin
     env:
       - CGO_ENABLED=1
