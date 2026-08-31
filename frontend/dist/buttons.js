@@ -55,8 +55,10 @@
     function buildRow(filePath, App) {
         var row = document.createElement('div');
         row.id = 'md-view-button-row';
-        // Position the row fixed top-right, beside the theme toggle.
-        row.style.cssText = 'position:fixed;top:12px;right:48px;z-index:100;display:flex;gap:6px;';
+        // Layout (fixed position below the app toolbar, buttons in a flex
+        // row) is defined in style.css under #md-view-button-row: the
+        // ui.css per-button fixed offsets apply only to the legacy
+        // full-page renderer, not here.;
 
         // --- Copy path (clip path) ---
         var copyBtn = el('md-view-copy-path-btn', 'Copy file path to clipboard', clipboardIcon);
