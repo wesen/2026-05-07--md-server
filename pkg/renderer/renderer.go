@@ -727,6 +727,19 @@ new MDSReloader("http://localhost:%d/events?file=%s");
 %s
 </script>`, opts.Port, string(mermaidInitJS))
 
+	// MathJax script (detects $...$ / $$...$$ and typesets them)
+	// The config MUST come before the library: MathJax v3 reads window.MathJax
+	// at load time. The library is served from the daemon at
+	// /static/mathjax.min.js, same as mermaid.min.js.
+	mathjaxScript := fmt.Sprintf(`<script>
+%s
+</script>
+<script src="http://localhost:%d/static/mathjax.min.js"></script>
+<script>
+if (window.MathJax && MathJax.startup) {
+    MathJax.startup.promise.then(function() { return window.MDSMathTypeset(); });
+}
+</script>`, string(mathjaxConfigJS), opts.Port)
 	// Copy-to-clipboard script
 	copyButtonScript := fmt.Sprintf(`<script>
 %s
@@ -809,6 +822,7 @@ new MDSReloader("http://localhost:%d/events?file=%s");
 %s
 %s
 %s
+%s
 </body>
 </html>`,
 		htmlThemeAttr,
@@ -821,6 +835,7 @@ new MDSReloader("http://localhost:%d/events?file=%s");
 		fmHTML,
 		body.Body,
 		mermaidScript,
+		mathjaxScript,
 		reloadScript+themeToggleScript+copyButtonScript+remarkableButtonScript+toolbarButtonsScript,
 	)
 

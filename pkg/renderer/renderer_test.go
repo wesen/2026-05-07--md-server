@@ -415,3 +415,43 @@ func TestBlankLineSplitsParagraphs(t *testing.T) {
 		t.Errorf("Body should not contain <br>, got: %s", body.Body)
 	}
 }
+
+// --- MathJax wiring (MD-MATH-SOFTWRAP Phase 4) ---
+
+// The full-page Render() must include the MathJax config (window.MathJax),
+// the library reference, and the post-startup typeset call.
+func TestRenderIncludesMathJaxScripts(t *testing.T) {
+	tmpDir := t.TempDir()
+	mdFile := filepath.Join(tmpDir, "math.md")
+	content := "# Math\n\nInline $x^2$ and display:\n\n$$a^2+b^2=c^2$$\n"
+	if err := os.WriteFile(mdFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	html, err := Render(mdFile, Options{NoReload: true, Port: 8080})
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+
+	if !contains(html, "mathjax.min.js") {
+		t.Error("Render() should reference the MathJax library")
+	}
+	if !contains(html, "inlineMath") {
+		t.Error("Render() should include the MathJax config (mathjax-config.js)")
+	}
+	if !contains(html, "MDSMathTypeset") {
+		t.Error("Render() should include the post-startup typeset call")
+	}
+	// Config must come before the library in the document. Match the actual
+	// script tag, not the bare filename (the config file's comments also
+	// mention the filename).
+	configIdx := strings.Index(html, "inlineMath")
+	libIdx := strings.Index(html, `src="http://localhost:8080/static/mathjax.min.js"`)
+	if configIdx == -1 || libIdx == -1 || configIdx > libIdx {
+		t.Errorf("MathJax config must load before the library (config@%d, lib@%d)", configIdx, libIdx)
+	}
+	// Math source passes through untouched for client-side scanning.
+	if !contains(html, "$x^2$") {
+		t.Errorf("Render() should pass math source through verbatim, got: %s", html)
+	}
+}
