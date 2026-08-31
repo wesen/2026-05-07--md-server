@@ -17,6 +17,7 @@ RelatedFiles:
       Note: |-
         root cause WithHardWraps found here
         removed WithHardWraps (commit b842010)
+        Render() mathjax script block (commit 9438be0)
     - Path: repo://pkg/renderer/static/mathjax-config.js
       Note: MathJax config + MDSMathTypeset (commit edbf71f)
     - Path: repo://pkg/renderer/static/mathjax.min.js
@@ -27,6 +28,7 @@ LastUpdated: 0001-01-01T00:00:00Z
 WhatFor: ""
 WhenToUse: ""
 ---
+
 
 
 
@@ -318,3 +320,62 @@ re-typeset after every swap, scoped to `#content`, idempotently.
 
 ### Technical details
 - Verified with Playwright evaluate: see "What I did" for the exact results.
+
+## Step 5: Phase 4 — legacy full-page renderer
+
+This step added MathJax to `renderer.Render()`, the full standalone HTML
+assembler: the config script inline, a `/static/mathjax.min.js` library tag
+(mirroring mermaid), and a `MathJax.startup.promise`-chained typeset. A test
+pins the config-before-library ordering and verbatim math passthrough.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 2)
+
+**Commit (code):** 9438be0 — "feat(renderer): wire MathJax into the legacy full-page Render()"
+
+### What I did
+- Added `mathjaxScript` block in `Render()` after `mermaidScript`, and the
+corresponding `%s` in the page template + arg list.
+- Added `TestRenderIncludesMathJaxScripts` covering library reference, config
+  presence, typeset call, ordering, and `$x^2$` passthrough.
+- Full `go test ./...` green.
+
+### Why
+`Render()` is still compiled and is the assembler for any full-page consumer;
+leaving it math-less would silently regress that path.
+
+### What worked
+- Reusing the exact mermaid script-block pattern.
+
+### What didn't work
+- First test run failed: `--- FAIL: TestRenderIncludesMathJaxScripts ...
+  config@24149, lib@23701`. Root cause: `strings.Index(html,
+  "mathjax.min.js")` matched the filename mentioned inside the config
+  script's own header comment, not the `<script src>` tag. Fixed by matching
+  the full `src="http://localhost:8080/static/mathjax.min.js"` tag.
+- While fixing the template arg count (`fmt.Sprintf call needs 11 args but
+  has 12`), I first added one `%s` too many (7 instead of 6 in the body
+  block); caught immediately by the compiler and corrected.
+
+### What I learned
+- Test heuristics that search for a bare filename are fragile when the
+  embedded assets' comments mention the same filename.
+
+### What was tricky to build
+- fmt.Sprintf positional alignment: the page template is a long list of
+  `%s` placeholders; inserting an arg requires touching both the template
+  and the arg list, and the compiler error only reports the count.
+
+### What warrants a second pair of eyes
+- The `/static/mathjax.min.js` URL is only servable if an HTTP daemon
+  exists; pkg/server was previously deleted, so `Render()` consumers need
+  their own /static route (same pre-existing caveat as mermaid).
+
+### What should be done in the future
+- If a server is reintroduced, register mathjax.min.js on /static like
+  mermaid.min.js.
+
+### Code review instructions
+- `pkg/renderer/renderer.go`: search `mathjaxScript`.
+- Validate: `go test ./pkg/renderer/ -run TestRenderIncludesMathJaxScripts -v`.
