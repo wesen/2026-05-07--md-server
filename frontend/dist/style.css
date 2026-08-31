@@ -338,3 +338,9 @@ body {
 #main::-webkit-scrollbar-thumb:hover {
     background-color: var(--text-secondary);
 }
+
+/* Recent-files toggle button active state (sidebar shown) */
+#recent-btn.active {
+    background-color: var(--bg-secondary);
+    border-color: var(--text-secondary);
+}

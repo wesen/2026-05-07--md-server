@@ -160,6 +160,26 @@ function clearError() {
     errorDiv.style.display = 'none';
 }
 
+// ---- Helper: Recent Files sidebar visibility ----
+// The sidebar is OFF by default; the toolbar button toggles it and the
+// preference is persisted in localStorage.
+function recentVisible() {
+    try { return localStorage.getItem('md-view-recent-visible') === '1'; }
+    catch (e) { return false; }
+}
+
+function setSidebarVisible(visible) {
+    const sidebar = document.getElementById('sidebar');
+    const btn = document.getElementById('recent-btn');
+    // Only show when there is something to show (list populated by
+    // loadRecentFiles); otherwise keep hidden even if the toggle is on.
+    const hasItems = document.getElementById('recent-list').children.length > 0;
+    const show = visible && hasItems;
+    sidebar.style.display = show ? 'block' : 'none';
+    if (btn) btn.classList.toggle('active', visible);
+    try { localStorage.setItem('md-view-recent-visible', visible ? '1' : '0'); } catch (e) { /* ignore */ }
+}
+
 // ---- Helper: Load Recent Files ----
 function loadRecentFiles() {
     window['go']['main']['App']['GetRecentFiles']()
@@ -194,7 +214,11 @@ function loadRecentFiles() {
                 list.appendChild(li);
             });
 
-            sidebar.style.display = 'block';
+            // Respect the toggle state (default: hidden) instead of
+            // auto-showing the sidebar on every startup.
+            sidebar.style.display = recentVisible() ? 'block' : 'none';
+            const btn = document.getElementById('recent-btn');
+            if (btn) btn.classList.toggle('active', recentVisible());
         });
 }
 
@@ -208,8 +232,18 @@ window.addEventListener('DOMContentLoaded', () => {
             window['go']['main']['App']['GetTheme']()
                 .then((theme) => { applyTheme(theme); });
 
-            // Load recent files on startup
+            // Load recent files on startup (sidebar stays hidden unless the
+            // user toggled it on in a previous session).
             loadRecentFiles();
+
+            // Recent-files sidebar toggle (off by default).
+            const recentBtn = document.getElementById('recent-btn');
+            if (recentBtn) {
+                recentBtn.classList.toggle('active', recentVisible());
+                recentBtn.addEventListener('click', () => {
+                    setSidebarVisible(!recentVisible());
+                });
+            }
         }
     }, 50);
 });
