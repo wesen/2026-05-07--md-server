@@ -22,3 +22,12 @@ Phase 1: removed html.WithHardWraps, paragraphs now soft-wrap; added 3 regressio
 
 - /home/manuel/code/wesen/2026-05-07--md-server/pkg/renderer/renderer.go — soft wrap change
 
+
+## 2026-08-31
+
+Phase 2: vendored MathJax v3 tex-svg + config, go:embed + getters, synced to frontend/dist (commit edbf71f)
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-05-07--md-server/pkg/renderer/renderer.go — mathjax embeds
+

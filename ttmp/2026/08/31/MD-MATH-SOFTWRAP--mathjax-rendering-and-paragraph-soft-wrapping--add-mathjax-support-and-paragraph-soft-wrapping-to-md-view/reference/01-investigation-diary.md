@@ -13,12 +13,17 @@ RelatedFiles:
       Note: |-
         root cause WithHardWraps found here
         removed WithHardWraps (commit b842010)
+    - Path: repo://pkg/renderer/static/mathjax-config.js
+      Note: MathJax config + MDSMathTypeset (commit edbf71f)
+    - Path: repo://pkg/renderer/static/mathjax.min.js
+      Note: vendored MathJax v3 tex-svg (commit edbf71f)
 ExternalSources: []
 Summary: ""
 LastUpdated: 0001-01-01T00:00:00Z
 WhatFor: ""
 WhenToUse: ""
 ---
+
 
 
 
@@ -173,3 +178,64 @@ viewer (DR-4 in the design doc).
 
 ### Technical details
 - Behavior change: `"a\nb"` now renders `<p>a b</p>` (previously `<p>a<br />\nb</p>`).
+
+## Step 3: Phase 2 — vendor and embed MathJax
+
+This step vendored the MathJax v3 `tex-svg` component into the repo and wired
+it into Go's embed system, mirroring the existing `mermaid.min.js` pattern.
+No page wiring yet (that is Phase 3).
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 2)
+
+**Commit (code):** edbf71f — "feat(renderer): vendor and embed MathJax v3 (tex-svg)"
+
+### What I did
+- `curl -sL -o pkg/renderer/static/mathjax.min.js
+  https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js` (2.1 MB).
+- Created `pkg/renderer/static/mathjax-config.js` (window.MathJax config +
+  `MDSMathTypeset()` typeset function).
+- Added `//go:embed` declarations and `MathjaxJS()` / `MathjaxConfigJS()`
+  getters in `pkg/renderer/renderer.go`.
+- Copied both files into `frontend/dist/` (same convention as mermaid.min.js,
+  which is also a plain copy — `make frontend-css` only regenerates chroma.css
+  and ui.css).
+- `go build ./...` and `go test ./pkg/renderer/` pass.
+
+### Why
+Offline-capable single-binary viewer (N1): MathJax must be embedded, not
+loaded from a CDN. tex-svg avoids font-file loading races (DR-3).
+
+### What worked
+- Exact reuse of the mermaid embed pattern; zero surprises.
+
+### What didn't work
+- N/A.
+
+### What I learned
+- `cmd/gen-chroma-css` only generates chroma.css/ui.css; the other dist
+  assets (base.css, dark.css, mermaid.min.js, ...) are plain copies, so
+  syncing MathJax to frontend/dist by cp matches the existing convention.
+
+### What was tricky to build
+- Ordering constraint: `mathjax-config.js` must load BEFORE the MathJax
+  library because v3 freezes `window.MathJax` at load time. Encoded in both
+  the file comment and the getter docstring.
+
+### What warrants a second pair of eyes
+- Bundle size: mathjax.min.js is 2.1 MB unminified-checked? (tex-svg.js as
+  served is ~2.1 MB raw on disk). Confirm acceptable binary growth after
+  `make build`.
+
+### What should be done in the future
+- Consider a stripped MathJax component build if binary size becomes a
+  complaint.
+
+### Code review instructions
+- Start at the embed block in `pkg/renderer/renderer.go` (search `mathjax`).
+- Validate: `go test ./pkg/renderer/ -count=1`.
+
+### Technical details
+- CDN source: https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js
+- MD5 in repo; treat as vendored third-party code (do not hand-edit).
