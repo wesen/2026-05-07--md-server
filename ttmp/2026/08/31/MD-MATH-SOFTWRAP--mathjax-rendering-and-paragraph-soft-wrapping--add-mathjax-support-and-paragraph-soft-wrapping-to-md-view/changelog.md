@@ -49,3 +49,12 @@ Phase 4: MathJax in legacy full-page Render() + ordering test (commit 9438be0)
 
 - /home/manuel/code/wesen/2026-05-07--md-server/pkg/renderer/renderer_test.go — TestRenderIncludesMathJaxScripts
 
+
+## 2026-08-31
+
+Phase 5: docs for math + soft wrap in README/user-guide; make test green, make lint 0 issues (commit 3a52b16). All phases complete.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-05-07--md-server/README.md — feature bullets
+

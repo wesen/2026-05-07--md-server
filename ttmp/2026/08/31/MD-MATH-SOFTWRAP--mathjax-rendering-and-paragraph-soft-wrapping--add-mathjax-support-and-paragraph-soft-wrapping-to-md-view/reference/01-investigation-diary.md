@@ -9,6 +9,8 @@ Owners: []
 RelatedFiles:
     - Path: abs:///home/manuel/code/wesen/2026-08-31--bayesian-marketing/artifacts/report-day1.md
       Note: example math corpus motivating the ticket
+    - Path: repo://docs/user-guide.md
+      Note: LaTeX Math + Paragraph Wrapping sections (commit 3a52b16)
     - Path: repo://frontend/dist/augment.js
       Note: initMathTypeset + startup.promise race handling (commit 9224848)
     - Path: repo://frontend/dist/index.html
@@ -28,6 +30,7 @@ LastUpdated: 0001-01-01T00:00:00Z
 WhatFor: ""
 WhenToUse: ""
 ---
+
 
 
 
@@ -379,3 +382,58 @@ leaving it math-less would silently regress that path.
 ### Code review instructions
 - `pkg/renderer/renderer.go`: search `mathjaxScript`.
 - Validate: `go test ./pkg/renderer/ -run TestRenderIncludesMathJaxScripts -v`.
+
+## Step 6: Phase 5 — docs and final validation
+
+This step documented both features in README.md and docs/user-guide.md
+and ran the full validation sweep: `make test` green, `make lint` 0 issues.
+All five phases of the design doc are now implemented.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 2)
+
+**Commit (code):** 3a52b16 — "docs: math rendering and paragraph soft-wrapping in README + user guide"
+
+### What I did
+- README.md: two new Key Features bullets (Math rendering, Soft-wrapped
+  paragraphs).
+- docs/user-guide.md: new "LaTeX Math" and "Paragraph Wrapping" sections +
+  ToC entries.
+- `make test` (all ok), `make lint` (0 issues).
+
+### Why
+The soft-wrap change is a user-visible behavior change and must be
+ documented (design doc Phase 5, DR-4 consequence).
+
+### What worked
+- Full pipeline green on first run after docs edits.
+
+### What didn't work
+- N/A.
+
+### What I learned
+- N/A (documentation step).
+
+### What was tricky to build
+- Keeping the docs' example math readable in markdown (escaped backslashes
+  inside a ````markdown fence inside the user guide).
+
+### What warrants a second pair of eyes
+- The user-guide claims "Math colors follow the theme" — verified by design
+  (currentColor), but a visual dark-theme check on a math-heavy file is a
+  good manual follow-up.
+
+### What should be done in the future
+- Manual smoke test with the bayesian-marketing report in the real app
+  (headless browser verification covered the frontend logic).
+- Optional: Playwright e2e for the MathJax startup race.
+
+### Code review instructions
+- Read README.md Key Features and docs/user-guide.md sections "LaTeX Math"
+  and "Paragraph Wrapping".
+- Validate: `make test && make lint`.
+
+### Technical details
+- Commits for the whole ticket: b842010 (P1), edbf71f (P2), 9224848 (P3),
+  9438be0 (P4), 3a52b16 (P5 docs).
