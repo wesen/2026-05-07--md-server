@@ -13,8 +13,12 @@ RelatedFiles:
       Note: LaTeX Math + Paragraph Wrapping sections (commit 3a52b16)
     - Path: repo://frontend/dist/augment.js
       Note: initMathTypeset + startup.promise race handling (commit 9224848)
+    - Path: repo://frontend/dist/buttons.js
+      Note: clip-article button + flex row layout (commits 58568c7, 8570621)
     - Path: repo://frontend/dist/index.html
       Note: mathjax script tag order (commit 9224848)
+    - Path: repo://frontend/dist/style.css
+      Note: sidebar toggle + button row positioning (commit 8570621)
     - Path: repo://pkg/renderer/renderer.go
       Note: |-
         root cause WithHardWraps found here
@@ -30,6 +34,7 @@ LastUpdated: 0001-01-01T00:00:00Z
 WhatFor: ""
 WhenToUse: ""
 ---
+
 
 
 
@@ -437,3 +442,166 @@ The soft-wrap change is a user-visible behavior change and must be
 ### Technical details
 - Commits for the whole ticket: b842010 (P1), edbf71f (P2), 9224848 (P3),
   9438be0 (P4), 3a52b16 (P5 docs).
+
+## Step 7: Follow-up features — sidebar toggle + clip buttons, legacy daemon replacement
+
+Two follow-up features requested after the main ticket work, plus replacing
+the stale legacy md-view daemon. The recent-files sidebar is now off by
+default with a toolbar toggle (persisted), and a new "Copy entire article"
+button copies the markdown source to the clipboard. The old pre-Wails
+`md-view serve` process (PID 1148060, port 42835, May-29 binary) was killed
+and ~/.local/bin/md-view replaced with the new desktop binary.
+
+### Prompt Context
+
+**User prompt (verbatim):** "go ahead. open the app and I'll confirm. Also, can we replace the currently running md-view server (the legacy part, that is however still used) as well? or is it gone?"
+
+followed by: "can we change the following things in the app:
+- toggle recent files sidebar (off by default)
+- clip entire article button + clip path"
+
+**Assistant interpretation:** Open the app for visual confirmation; replace
+the stale legacy daemon with the new binary; add a sidebar toggle (hidden by
+default) and clipboard buttons (whole article + path).
+
+**Inferred user intent:** Declutter the default view, and make it easy to copy
+the full article or its path out of the viewer.
+
+**Commit (code):** 58568c7 — "feat(frontend): sidebar toggle (off by default) + clip-article button"
+
+### What I did
+- Legacy daemon investigation: `serve`/`status`/`stop` are gone from the
+  current codebase (deleted in the Wails port); what ran was the old May-29
+  binary (`~/.local/bin/md-view`, 53 MB) listening on 127.0.0.1:42835 since
+  Aug 24. Killed it (port free), installed the new desktop binary (19.5 MB).
+- `frontend/dist/index.html`: added the `🕘 Recent` toolbar button.
+- `frontend/dist/app.js`: `recentVisible()`/`setSidebarVisible()` helpers,
+  `loadRecentFiles()` no longer force-shows the sidebar, toggle listener with
+  localStorage persistence (`md-view-recent-visible`, default off).
+- `frontend/dist/buttons.js`: new "Copy entire article" button calling
+  `App.RawFile(filePath)` (Wails JSON-marshals []byte as base64 — decoded
+  with atob + TextDecoder) then `navigator.clipboard.writeText`.
+- `pkg/renderer/renderer.go` themeCSS: copy-path shifted to right:200px,
+  new `.md-view-copy-article-btn { right: 160px }`; regenerated ui.css via
+  `make frontend-css`.
+- Rebuilt, reinstalled to ~/.local/bin, relaunched the app with the
+  bayesian report.
+- Browser-verified with a stubbed window.go binding: sidebar toggles and
+  persists (none→block→none, pref 1→0), article button copies the exact
+  markdown source, path button copies the path, success icon shows.
+
+### Why
+The sidebar auto-showing on every startup was clutter; clipboard export of
+the full article (e.g. into notes or an LLM chat) is a frequent viewer need.
+
+### What worked
+- Reusing `App.RawFile` meant zero new Go API surface for the clip button.
+- localStorage persistence pattern matches the theme toggle.
+
+### What didn't work
+- First attempt used Wails `runtime.Clipboard.SetText` in app.go —
+  `undefined: runtime.Clipboard` (that API is Wails v3, not v2.12). Reverted
+  to frontend navigator.clipboard.
+- Browser test initially showed the sidebar toggle "not working": my stub
+  of window.go was missing GetTheme, which threw inside the checkReady
+  interval callback and aborted the listener attach. With a complete stub,
+  the toggle works. In the real app Wails always provides all bindings.
+- Twice, `pkill -f "<pattern>"` killed the agent's own bash tool shell because
+  the pattern matched the command string itself; commits had to be re-run.
+
+### What I learned
+- Wails v2 JSON-marshals Go `[]byte` return values as base64 strings —
+  frontend bindings must atob-decode them.
+- The desktop toolbar buttons are individually `position: fixed` with
+  `right:` offsets from the generated ui.css; adding a button requires
+  editing themeCSS() in renderer.go and re-running `make frontend-css`.
+
+### What was tricky to build
+- Fixed-offset button layout: the row div's flex styles are decorative; the
+  real placement comes from ui.css right offsets, so a new button needs its
+  own offset rule or it lands unpredictably.
+
+### What warrants a second pair of eyes
+- The checkReady init block has no try/catch: any App binding that throws
+  during init skips later init steps (only reproducible with a broken
+  binding, but worth hardening someday).
+
+### What should be done in the future
+- Consider a keyboard shortcut for the sidebar toggle and for clip-article.
+
+### Code review instructions
+- `frontend/dist/app.js`: recentVisible/setSidebarVisible + loadRecentFiles;
+  `frontend/dist/buttons.js`: article button handler (base64 decode).
+- Validate: run the app, click `🕘 Recent` twice, click the article icon and
+  paste into an editor.
+
+### Technical details
+- Related legacy finding: no HTTP server remains in the codebase; `Render()`
+  script tags referencing localhost:/static/ only matter if a server is
+  ever reintroduced.
+
+## Step 8: Fix overlapping toolbar icons
+
+User reported (with a screenshot) that the toolbar icons overlap after
+Step 7. Root cause: the desktop button row was positioned at top:12px —
+inside the app's own 41px toolbar strip — and every button kept its legacy
+per-button `position: fixed; right: <offset>` from ui.css (copy 200,
+article 160, download 120, reMarkable 80), so the new copy-article button
+landed on top of the toolbar's Recent/Theme buttons.
+
+### Prompt Context
+
+**User prompt (verbatim):** "/tmp/pi-clipboard-bf0ef011-44a3-403c-a7e8-5fb761ce5feb.png — this is messy the icons overlap"
+
+**Inferred user intent:** The four content buttons must not overlap each
+other or the app toolbar.
+
+**Commit (code):** 8570621 — "fix(frontend): stop toolbar button row overlapping the app toolbar"
+
+### What I did
+- `frontend/dist/buttons.js`: removed the inline cssText on the row; layout
+  now comes from style.css.
+- `frontend/dist/style.css`: new `#md-view-button-row` rules — fixed at
+  top:49px (below the 41px toolbar), right:12px, flex with 6px gap — and
+  `#md-view-button-row .md-view-toolbar-btn { position: static; ... }` to
+  neutralize the legacy ui.css fixed offsets.
+- Rebuilt, reinstalled, relaunched the app for user confirmation.
+
+### Why
+The ui.css per-button offsets exist for the legacy full-page renderer where
+buttons are appended directly to <body>; in the desktop frontend they are
+children of a flex row and must be static.
+
+### What worked
+- Single CSS layer separation: desktop layout in style.css, legacy layout
+  in ui.css, no !important needed.
+
+### What didn't work
+- N/A.
+
+### What I learned
+- Two consumers (desktop frontend + legacy full page) share the
+  .md-view-toolbar-btn class but need opposite positioning models; scoping
+  the desktop overrides under #md-view-button-row cleanly separates them.
+
+### What was tricky to build
+- Diagnosing from a screenshot: the flex row's gap was a red herring — the
+  real placement came from the fixed per-button ui.css offsets, and the row
+  itself was vertically inside the app toolbar strip.
+
+### What warrants a second pair of eyes
+- The row at top:49px floats over the top-right of the content area; on
+  very short windows it could overlap a heading. Acceptable for now.
+
+### What should be done in the future
+- Consider moving the four actions into the app toolbar itself instead of
+  a floating row.
+
+### Code review instructions
+- `frontend/dist/style.css` (#md-view-button-row), `frontend/dist/buttons.js`
+  (row creation).
+- Validate: run the app; the four icons sit in a row below the toolbar,
+  right-aligned, nothing overlapping.
+
+### Technical details
+- Button order in the row: copy-path, copy-article, download, reMarkable.

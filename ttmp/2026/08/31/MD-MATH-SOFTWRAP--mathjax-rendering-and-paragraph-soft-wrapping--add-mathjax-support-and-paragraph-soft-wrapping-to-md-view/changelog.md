@@ -58,3 +58,12 @@ Phase 5: docs for math + soft wrap in README/user-guide; make test green, make l
 
 - /home/manuel/code/wesen/2026-05-07--md-server/README.md — feature bullets
 
+
+## 2026-08-31
+
+Follow-ups: sidebar toggle off-by-default + clip-article button (58568c7); fixed overlapping toolbar icons via scoped row layout (8570621); replaced stale legacy daemon binary
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-05-07--md-server/frontend/dist/app.js — sidebar toggle persistence
+
