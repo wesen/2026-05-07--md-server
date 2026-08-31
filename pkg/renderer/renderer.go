@@ -33,6 +33,12 @@ var mermaidInitJS []byte
 //go:embed static/mermaid.min.js
 var mermaidJS []byte
 
+//go:embed static/mathjax.min.js
+var mathjaxJS []byte
+
+//go:embed static/mathjax-config.js
+var mathjaxConfigJS []byte
+
 //go:embed static/copy-button.js
 var copyButtonJS []byte
 
@@ -60,6 +66,18 @@ func ReloadJS() []byte {
 // MermaidJS returns the embedded mermaid.js library.
 func MermaidJS() []byte {
 	return mermaidJS
+}
+
+// MathjaxJS returns the embedded MathJax v3 library (tex-svg component).
+func MathjaxJS() []byte {
+	return mathjaxJS
+}
+
+// MathjaxConfigJS returns the MathJax configuration + MDSMathTypeset script.
+// It must be included BEFORE the MathJax library itself, because MathJax v3
+// reads window.MathJax at library load time.
+func MathjaxConfigJS() []byte {
+	return mathjaxConfigJS
 }
 
 // CopyButtonJS returns the embedded copy-to-clipboard script.
