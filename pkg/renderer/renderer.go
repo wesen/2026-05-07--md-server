@@ -631,7 +631,11 @@ func RenderBody(filePath string, opts Options) (*BodyHTML, error) {
 			),
 		),
 		goldmark.WithRendererOptions(
-			html.WithHardWraps(),
+			// Soft wrapping: a single newline inside a paragraph is a space
+			// (CommonMark semantics). A hard break still requires two trailing
+			// spaces or a trailing backslash, which goldmark handles in the parser.
+			// The old html.WithHardWraps() produced jagged, staircase-shaped
+			// paragraphs on narrow/mobile viewports.
 			html.WithXHTML(),
 		),
 	)

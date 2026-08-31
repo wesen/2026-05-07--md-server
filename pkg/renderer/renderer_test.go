@@ -344,3 +344,74 @@ func containsHelper(s, substr string) bool {
 	}
 	return false
 }
+
+// --- Paragraph soft-wrapping (MD-MATH-SOFTWRAP Phase 1) ---
+
+// A single newline inside a paragraph must render as a space (soft wrap),
+// not a <br /> — hard wraps produced jagged paragraphs on narrow viewports.
+func TestParagraphSoftWrap(t *testing.T) {
+	tmpDir := t.TempDir()
+	mdFile := filepath.Join(tmpDir, "soft.md")
+	content := "line one\nline two\nline three\n"
+	if err := os.WriteFile(mdFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	body, err := RenderBody(mdFile, Options{})
+	if err != nil {
+		t.Fatalf("RenderBody() error = %v", err)
+	}
+
+	if contains(body.Body, "<br") {
+		t.Errorf("Body should not contain <br> for soft newlines, got: %s", body.Body)
+	}
+	if !contains(body.Body, "line one") || !contains(body.Body, "line two") || !contains(body.Body, "line three") {
+		t.Errorf("Body should contain all paragraph text, got: %s", body.Body)
+	}
+	// All three source lines belong to one paragraph.
+	if got := strings.Count(body.Body, "<p>"); got != 1 {
+		t.Errorf("Body should contain exactly 1 <p>, got %d: %s", got, body.Body)
+	}
+}
+
+// An explicit hard break (two trailing spaces before the newline) must still
+// produce a <br />.
+func TestHardBreakStillWorks(t *testing.T) {
+	tmpDir := t.TempDir()
+	mdFile := filepath.Join(tmpDir, "hard.md")
+	content := "line one  \nline two\n"
+	if err := os.WriteFile(mdFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	body, err := RenderBody(mdFile, Options{})
+	if err != nil {
+		t.Fatalf("RenderBody() error = %v", err)
+	}
+
+	if !contains(body.Body, "<br") {
+		t.Errorf("Body should contain <br> for two-space hard break, got: %s", body.Body)
+	}
+}
+
+// A blank line still splits paragraphs.
+func TestBlankLineSplitsParagraphs(t *testing.T) {
+	tmpDir := t.TempDir()
+	mdFile := filepath.Join(tmpDir, "split.md")
+	content := "para one\nstill one\n\npara two\n"
+	if err := os.WriteFile(mdFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	body, err := RenderBody(mdFile, Options{})
+	if err != nil {
+		t.Fatalf("RenderBody() error = %v", err)
+	}
+
+	if got := strings.Count(body.Body, "<p>"); got != 2 {
+		t.Errorf("Body should contain 2 <p> blocks, got %d: %s", got, body.Body)
+	}
+	if contains(body.Body, "<br") {
+		t.Errorf("Body should not contain <br>, got: %s", body.Body)
+	}
+}
