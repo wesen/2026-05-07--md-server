@@ -38,6 +38,11 @@ func TestParseViewArgs(t *testing.T) {
 			want: ViewArgs{Dark: true},
 		},
 		{
+			name: "detached child foreground marker and separator",
+			args: []string{"view", "--foreground", "--dark", "--", "/tmp/view"},
+			want: ViewArgs{File: "/tmp/view", Dark: true},
+		},
+		{
 			name: "no args",
 			args: []string{},
 			want: ViewArgs{},

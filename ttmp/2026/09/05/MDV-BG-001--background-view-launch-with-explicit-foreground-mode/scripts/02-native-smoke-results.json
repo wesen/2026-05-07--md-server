@@ -1,0 +1,32 @@
+{
+  "background": {
+    "output": "Started md-view process 3353305; log: /tmp/mdv-bg-smoke-5mn_yjs6/cache/md-view/launch-1159635992.log",
+    "pid": 3353305,
+    "sid": 3353305,
+    "args": [
+      "/home/manuel/code/wesen/go-go-golems/md-view-background/build/bin/md-view",
+      "view",
+      "--foregruond",
+      "--dark",
+      "--",
+      "/tmp/mdv-bg-smoke-5mn_yjs6/relative file.md"
+    ],
+    "fd": {
+      "0": "/dev/null",
+      "1": "/tmp/mdv-bg-smoke-5mn_yjs6/cache/md-view/launch-1159635992.log",
+      "2": "/tmp/mdv-bg-smoke-5mn_yjs6/cache/md-view/launch-1159635992.log"
+    },
+    "window": "0x0880000c",
+    "title": "md-view: MDV-BG-001 native smoke",
+    "survived_terminal_close": true,
+    "log": "Overriding existing handler for signal 10. Set JSC_SIGNAL_FOR_GC if you want WebKit to use a different signal\n"
+  },
+  "foreground": {
+    "blocked_with_window_open": true,
+    "window": "0x0880000c",
+    "title": "md-view: MDV-BG-001 native smoke",
+    "exit_code": "0",
+    "pane": "Overriding existing handler for signal 10. Set JSC_SIGNAL_FOR_GC if you want Web\nKit to use a different signal"
+  },
+  "validation_does_not_spawn": true
+}
