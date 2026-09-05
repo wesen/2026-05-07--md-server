@@ -2,17 +2,41 @@
 Title: Diary
 Ticket: MDV-BG-001
 Status: active
-Topics: [cli]
+Topics:
+    - cli
 DocType: reference
 Intent: long-term
 Owners: []
-RelatedFiles: []
+RelatedFiles:
+    - Path: repo://README.md
+      Note: Updated lifecycle overview
+    - Path: repo://docs/getting-started.md
+      Note: New default and diagnostics
+    - Path: repo://docs/user-guide.md
+      Note: Flag logs and migration
+    - Path: repo://internal/launch/detach_nonunix_test.go
+      Note: Native-test limitation
+    - Path: repo://internal/launch/detach_other.go
+      Note: Unsupported platform error
+    - Path: repo://internal/launch/detach_unix.go
+      Note: Unix session policy
+    - Path: repo://internal/launch/detach_unix_test.go
+      Note: Session verification
+    - Path: repo://internal/launch/detach_windows.go
+      Note: Windows process flags
+    - Path: repo://internal/launch/launch.go
+      Note: Detached launch implementation
+    - Path: repo://internal/launch/launch_test.go
+      Note: Real child process and failures
+    - Path: repo://main_test.go
+      Note: Command dispatch and validation
 ExternalSources: []
 Summary: Chronological background-view implementation and delivery evidence.
 LastUpdated: 2026-09-05T17:35:00-04:00
 WhatFor: Review and resume work with explicit rationale and validation evidence.
 WhenToUse: When reviewing the launch lifecycle change.
 ---
+
 
 # Diary
 
@@ -87,3 +111,67 @@ Start with the design's current-state map and decision records. Compare the base
 - Branch: `task/background-view`.
 - Phases: P1 investigate/publish; P2 implement; P3 validate/deliver.
 - Primary guide: `design-doc/01-background-launch-intern-guide.md`.
+
+
+## Step 2: Implement detached launch without touching the desktop lifecycle
+
+Implemented a small Wails-independent launcher package and a testable Cobra command factory. Default explicit view now re-executes the binary with `--foregruond`, absolute file arguments, and optional dark mode. The child inherits cwd/environment but gets null stdin, private log-backed output, and platform-specific detachment attributes.
+
+The desktop callbacks and renderer remain unchanged. User docs now distinguish the temporary launcher from the long-lived desktop and explain asynchronous errors, log retention, intentional flag spelling, and unchanged bare launch. Focused and full package tests passed on the first implementation run.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Implement the published process-ownership design and verify it independently of a native WebView.
+
+**Inferred user intent:** Make the normal command return immediately without losing file/theme behavior or the ability to debug in foreground.
+
+**Commit (code):** 2db896d23a764aa284b4ef1d7d75ebc9db629588 — "feat: detach view launches unless --foregruond is set"
+
+### What I did
+
+- Added `internal/launch/launch.go`, OS-specific detachment files, and portable/helper-process tests.
+- Extracted `newRootCommand` and added dispatch/error/argument-validation tests in `main_test.go`.
+- Added forwarded-child argument regression coverage in `cli_test.go`.
+- Updated README, getting-started, and user-guide command/lifecycle explanations.
+- Ran `gofmt -w main.go main_test.go cli_test.go internal/launch/*.go`, `go test -tags webkit2_41 ./...`, and `git diff --check`: passed.
+- Committed implementation separately from ticket bookkeeping.
+- P1 publication succeeded after dry-run: `OK: uploaded MDV-BG-001 Background Launch Guide.pdf -> /ai/2026/09/05/MDV-BG-001`.
+- P1 DONE and P2 START slips reported `printed: true` at 21:35:11Z and 21:35:14Z. P1 design commit is `33c35b3`.
+
+### Why
+
+`exec.Command` avoids shell interpretation and preserves one deployable binary. The foreground flag both serves the user and prevents child recursion. Private regular log files prevent shell pipes from staying open and retain asynchronous startup stderr.
+
+### What worked
+
+The real helper process test confirmed Start returns before the child exits, args/cwd/environment survive, stdin reaches EOF, stdout/stderr reach a 0600 log, and on Unix the child SID equals its PID. A release-file gate shuts down the helper; a 15-second deadline limits leaks if the parent is interrupted. Invalid executable startup removes unused logs. Command tests confirm invalid flags/extra files do not launch anything.
+
+### What didn't work
+
+No failing implementation tests or commands in this step. Windows/macOS runtime behavior remains untested; their compilation and Linux native GUI smoke are scheduled for P3.
+
+### What I learned
+
+The launch package can be tested without any GTK or Wails dependencies. `Process.Release` is the appropriate ownership handoff for a short-lived CLI, while `Wait` would restore the original blocking behavior. A process PID is not a window identity when Wails hands off to an existing instance.
+
+### What was tricky to build
+
+Null standard streams and session detachment solve different problems: Setsid removes the controlling terminal, but inherited stdout would still keep a caller's pipe open. Set both output descriptors to a regular log and stdin to nil. Windows requires closing a failed-start log before removing it. Canonical arguments place an absolute file after `--`, avoiding both shell injection and flag-looking file names while retaining lenient Wails forwarding.
+
+### What warrants a second pair of eyes
+
+Review platform attributes, cleanup after Start failure, and the distinction between exec acknowledgement and readiness. The launcher does not wait/reap indefinitely because the CLI exits immediately; do not reuse it as a long-running supervisor API without revisiting ownership.
+
+### What should be done in the future
+
+Run race/vet/full production build and native smoke; cross-compile the isolated package; publish final evidence and diary. Native Windows/macOS runtime checks remain follow-up work if no host is available.
+
+### Code review instructions
+
+Start with `main.go:newRootCommand`, then `internal/launch/launch.go:Start`, `childArgs`, and `start`. Inspect each `detach_*.go` policy. Run `go test -tags webkit2_41 ./...` and `go test ./internal/launch -count=10` to exercise process timing repeatedly.
+
+### Technical details
+
+Child vector: `view --foregruond [--dark] -- /absolute/file`. Logs: `os.UserCacheDir()/md-view/launch-*.log`. Unix: Setsid. Windows: DETACHED_PROCESS plus CREATE_NEW_PROCESS_GROUP. Other platforms return an actionable foreground-mode error.
