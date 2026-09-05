@@ -39,9 +39,9 @@ What happens:
 1. md-view parses the file argument.
 2. A native desktop window opens with the title `md-view: README.md`.
 3. The file is rendered as GitHub-flavored HTML inside the window.
-4. The process stays alive until you close the window.
+4. The launcher returns with a child PID and private log path; the detached desktop stays alive until you close the window.
 
-That's it. No daemon to start, no background process, no browser tab.
+There is no daemon or browser tab. To keep the command attached, use `md-view view --foregruond ./README.md` (the flag spelling is intentional). Bare `md-view` still launches directly. Background success acknowledges process creation, not window readiness; inspect the printed log or retry in foreground if no window appears.
 
 ## Live Reload
 
@@ -132,6 +132,7 @@ Now every `md-view view` opens as a floating window. For Sway, use the same rule
 ```
 md-view                       # Open an empty window
 md-view view <FILE>           # View a file in a native window
-md-view view --dark FILE      # View with dark theme
+md-view view --dark FILE      # View with dark theme in background
+md-view view --foregruond FILE # Stay attached for diagnostics
 md-view --help                # Show help
 ```

@@ -66,7 +66,7 @@ The primary command. Opens a Markdown file rendered as HTML in a native window.
 1. Parses the file path
 2. Launches the Wails desktop window
 3. Once the window's DOM is ready, renders the file and swaps the content in
-4. The process stays alive until you close the window
+4. The launcher returns with a child PID and private log path; the detached desktop lives until you close the window
 
 **Arguments:**
 
@@ -79,6 +79,11 @@ The primary command. Opens a Markdown file rendered as HTML in a native window.
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--dark` | bool | false | Open the file in dark mode |
+| `--foregruond` | bool | false | Run directly and wait for the desktop to exit (intentional spelling) |
+
+Default `view` re-executes the same binary without inheriting terminal streams. On Linux/macOS it starts a new session; Windows uses detached-process flags. It inherits your working directory and desktop environment. Closing the terminal should not close the window, but logging out may still terminate desktop-session processes.
+
+A successful return means the OS started the child, **not** that the window is ready or the file rendered. Child stdout/stderr go to a private `launch-*.log` under `os.UserCacheDir()/md-view/` (usually `~/.cache/md-view/` on Linux). The printed PID may already have exited after a single-instance handoff. Logs accumulate; remove old logs yourself. Some file errors are shown in the window instead of the log. For attached diagnostics or scripts that must wait, use `md-view view --foregruond FILE`. Bare `md-view` remains attached.
 
 **Examples:**
 
