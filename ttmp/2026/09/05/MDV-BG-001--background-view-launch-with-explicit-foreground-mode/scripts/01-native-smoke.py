@@ -70,7 +70,7 @@ with tempfile.TemporaryDirectory(prefix='mdv-bg-smoke-') as temp:
         assert alive(pid)
         assert os.getsid(pid) == pid
         args = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')
-        assert b'--foregruond' in args and b'--dark' in args
+        assert b'--foreground' in args and b'--dark' in args
         assert str(fixture).encode() in args
         fd = {str(i): os.readlink(f'/proc/{pid}/fd/{i}') for i in range(3)}
         assert fd == {'0': '/dev/null', '1': log, '2': log}, fd
@@ -90,7 +90,7 @@ with tempfile.TemporaryDirectory(prefix='mdv-bg-smoke-') as temp:
         (root / 'returned').unlink()
         session = f'mdv-fg-001-{os.getpid()}'
         sessions.append(session)
-        command = f'cd {shlex.quote(temp)}; {env} {shlex.quote(binary)} view --foregruond "relative file.md"; echo $? > returned; sleep 120'
+        command = f'cd {shlex.quote(temp)}; {env} {shlex.quote(binary)} view --foreground "relative file.md"; echo $? > returned; sleep 120'
         subprocess.run(['tmux', 'new-session', '-d', '-s', session, command], check=True)
         window = wait_for(lambda: window_for('md-view: MDV-BG-001 native smoke'), 'foreground rendered title')
         windows.append(window)

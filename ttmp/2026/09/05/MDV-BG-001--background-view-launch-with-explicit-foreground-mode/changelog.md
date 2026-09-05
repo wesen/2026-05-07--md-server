@@ -24,3 +24,8 @@ P3 validation: race/vet/tests/build passed; native background survived terminal 
 
 P3 complete: final guide/diary bundle uploaded successfully after dry-run to /ai/2026/09/05/MDV-BG-001; seventh thermal slip printed at 21:44:57Z. All phases complete, native non-Linux limitations documented.
 
+
+## 2026-09-05
+
+Corrected public and child flag to --foreground per user clarification; typo rejected, current docs/script updated, all package tests pass (7fd74c0). Historical uploaded PDFs and smoke evidence retain their original spelling.
+

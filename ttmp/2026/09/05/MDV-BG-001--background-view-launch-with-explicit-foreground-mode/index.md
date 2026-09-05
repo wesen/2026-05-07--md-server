@@ -19,7 +19,7 @@ WhenToUse: ""
 
 ## Overview
 
-Explicit `md-view view` now launches a terminal-independent copy of the same Wails binary and returns a child PID plus private log path. `--foregruond` keeps it attached; bare `md-view` remains a direct desktop launch. No daemon or new IPC protocol is introduced.
+Explicit `md-view view` now launches a terminal-independent copy of the same Wails binary and returns a child PID plus private log path. `--foreground` keeps it attached; bare `md-view` remains a direct desktop launch. No daemon or new IPC protocol is introduced.
 
 - Worktree: `/home/manuel/code/wesen/go-go-golems/md-view-background`
 - Branch: `task/background-view`

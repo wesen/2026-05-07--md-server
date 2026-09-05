@@ -35,9 +35,9 @@ WhenToUse: Before changing CLI process ownership or troubleshooting detached lau
 
 ## 1. Executive summary
 
-`md-view` is a native Markdown desktop application, not a web server. Today its Cobra `view` command directly enters the Wails event loop and does not return until the window closes. This ticket changes **process ownership**, not rendering: `md-view view file.md` will start a detached copy of the same executable and immediately return to the shell. `md-view view --foregruond file.md` will instead run Wails in the invoking process.
+`md-view` is a native Markdown desktop application, not a web server. Today its Cobra `view` command directly enters the Wails event loop and does not return until the window closes. This ticket changes **process ownership**, not rendering: `md-view view file.md` will start a detached copy of the same executable and immediately return to the shell. `md-view view --foreground file.md` will instead run Wails in the invoking process.
 
-The unusual spelling `--foregruond` is intentional: it is the exact requested public flag. There is no additional spelling alias. Bare `md-view` remains a direct desktop launch for double-click and Wails development workflows; only the explicit `view` command changes. The background copy internally uses the same foreground flag to avoid recursively spawning copies.
+The public flag is `--foreground`, corrected after user clarification. The original typo is not retained as an alias. Bare `md-view` remains a direct desktop launch for double-click and Wails development workflows; only the explicit `view` command changes. The background copy internally uses the same foreground flag to avoid recursively spawning copies.
 
 A successful background command means the operating system accepted the child process, **not** that a window finished opening or the file rendered. Failures after exec are asynchronous and go to a private per-launch log. This distinction is fundamental to the design and must remain visible in help and documentation.
 
@@ -92,13 +92,13 @@ shell --waits--> Cobra view --> runDesktop --> Wails event loop
                                                 +--> watcher
 
 AFTER: default view
-shell --> launcher --> exec same binary, view --foregruond
+shell --> launcher --> exec same binary, view --foreground
              |                         |
              +--> print PID/log        +--> Wails / existing-instance handoff
              +--> return               +--> normal desktop lifecycle
 
 AFTER: explicit foreground
-shell --waits--> Cobra view --foregruond --> runDesktop --> Wails
+shell --waits--> Cobra view --foreground --> runDesktop --> Wails
 ```
 
 ### 3.4 Build boundaries
@@ -148,7 +148,7 @@ type Result struct {
 func Start(file string, dark bool) (Result, error)
 ```
 
-`Start` finds the current executable via `os.Executable`, resolves the optional file via `filepath.Abs`, chooses `os.UserCacheDir()/md-view`, creates that directory with mode 0700, and uses `os.CreateTemp` to create a mode-0600 `launch-*.log`. It constructs canonical arguments `view --foregruond [--dark] -- ABSOLUTE_FILE`. The separator protects flag-looking file names; absolute paths also make Wails' lenient handoff parser safe. An omitted file needs no separator or positional argument.
+`Start` finds the current executable via `os.Executable`, resolves the optional file via `filepath.Abs`, chooses `os.UserCacheDir()/md-view`, creates that directory with mode 0700, and uses `os.CreateTemp` to create a mode-0600 `launch-*.log`. It constructs canonical arguments `view --foreground [--dark] -- ABSOLUTE_FILE`. The separator protects flag-looking file names; absolute paths also make Wails' lenient handoff parser safe. An omitted file needs no separator or positional argument.
 
 Use `exec.Command`, not `exec.CommandContext`: cancellation of the launcher must not kill an independently owned desktop. Leave `Env` and `Dir` unset to inherit them. A nil stdin makes Go connect it to the null device. Set stdout and stderr to the same regular log file; close the parent's descriptor after Start. Call `Process.Release` rather than `Wait`, because waiting defeats the requirement. Preserve the log on successful start; remove an unused log if process creation fails.
 
@@ -169,7 +169,7 @@ Session detachment does not protect against a login manager killing every proces
 ```text
 execute view:
     Cobra validates flags and zero-or-one file
-    if foregruond:
+    if foreground:
         return runDesktop(file, dark)
     result = launch.Start(file, dark)
     if error:
@@ -191,7 +191,7 @@ launch.Start:
     return PID and log path
 
 child:
-    parses --foregruond
+    parses --foreground
     enters runDesktop without launching again
     Wails either opens its own window or forwards to existing instance
 ```
@@ -207,12 +207,12 @@ child:
 - **Consequences:** startup pays one extra process execution; successful parent exit cannot report later GUI failure.
 - **Status:** accepted.
 
-### Decision: literal requested foreground flag, explicit view only
+### Decision: corrected foreground flag, explicit view only
 
-- **Context:** the request names `md-view view` and spells the opt-in `--foregruond`.
-- **Options considered:** silently correct the spelling, expose two aliases, use the requested spelling only.
-- **Decision:** expose only `--foregruond`; leave bare launch direct.
-- **Rationale:** fulfills the literal request without unrequested compatibility aliases or changing double-click/development behavior.
+- **Context:** the user clarified that the foreground flag must use the correct spelling.
+- **Options considered:** correct spelling only, or retain the typo as an alias.
+- **Decision:** expose only `--foreground`; leave bare launch direct.
+- **Rationale:** follows the clarification without retaining an unwanted typo alias or changing double-click/development behavior.
 - **Consequences:** help and examples must make the spelling obvious; a future rename is an intentional public interface change.
 - **Status:** accepted.
 
@@ -245,7 +245,7 @@ Finish the diary, relate all material code/docs to focused documents, run docmgr
 
 ## 8. Test strategy and acceptance matrix
 
-- **Dispatch:** default view invokes background once; `--foregruond` invokes desktop once; `--foregruond=false` still backgrounds; root remains direct; dark flag survives; invalid input launches neither callback.
+- **Dispatch:** default view invokes background once; `--foreground` invokes desktop once; `--foreground=false` still backgrounds; root remains direct; dark flag survives; invalid input launches neither callback.
 - **Arguments:** normalized absolute file follows `--`; caller spelling and arbitrary shell content stay a single argument; child always receives foreground true; empty-file launch is valid.
 - **Lifecycle:** real helper PID exists when Start returns, is a new Unix session leader, sees EOF on stdin, writes to the private log, inherits cwd/environment, and terminates through test cleanup.
 - **Failure:** executable/cache/log errors propagate, no spurious success output, no unused log after failed exec. Errors after exec are intentionally outside parent acknowledgement.
@@ -262,14 +262,14 @@ make build
 GOOS=windows CGO_ENABLED=0 go test -c ./internal/launch -o /tmp/mdv-launch-windows.test.exe
 GOOS=darwin CGO_ENABLED=0 go test -c ./internal/launch -o /tmp/mdv-launch-darwin.test
 build/bin/md-view view --help
-build/bin/md-view view --foregruond README.md
+build/bin/md-view view --foreground README.md
 ```
 
 ## 9. Operational guidance, risks, and migration
 
-Scripts that previously relied on the command waiting must add `--foregruond`. `view` now returns launch diagnostics instead of carrying the desktop's eventual exit code. Terminal closure should not kill the detached desktop, but desktop logout may. Closing the window remains the normal way to stop the app; no daemon management commands are introduced.
+Scripts that previously relied on the command waiting must add `--foreground`. `view` now returns launch diagnostics instead of carrying the desktop's eventual exit code. Terminal closure should not kill the detached desktop, but desktop logout may. Closing the window remains the normal way to stop the app; no daemon management commands are introduced.
 
-If no window appears, read the printed log and retry with `--foregruond`. A successful launcher cannot promise that Wails found a display. File-read failures may be delivered to the frontend rather than stderr; do not advertise logs as a complete audit trail. Logs are private when created, but the cache directory may already exist with user-modified permissions. Do not truncate shared logs or change permissions on unrelated directories.
+If no window appears, read the printed log and retry with `--foreground`. A successful launcher cannot promise that Wails found a display. File-read failures may be delivered to the frontend rather than stderr; do not advertise logs as a complete audit trail. Logs are private when created, but the cache directory may already exist with user-modified permissions. Do not truncate shared logs or change permissions on unrelated directories.
 
 Potential review points are child stream ownership, session flags on each OS, accidental recursion, path normalization before forwarding, and confusion between spawned PID and existing-window PID. Native macOS/Windows checks remain necessary even if cross-compilation succeeds. Existing Linux single-instance behavior is explicitly best-effort and must not be conflated with a detachment regression.
 
@@ -312,3 +312,8 @@ Verified on Linux:
 - No task-owned application processes or tmux sessions remained after validation.
 
 The smoke observes dark mode in child args, not rendered theme pixels. It does not establish Windows/macOS native session behavior or repeated-instance deduplication. Those remain explicit validation limitations, not claims inferred from Linux. Native startup emitted the nonfatal WebKit diagnostic `Overriding existing handler for signal 10. Set JSC_SIGNAL_FOR_GC if you want WebKit to use a different signal`. Wails binding generation also warned about unresolved standard-library model types (`url.Userinfo`, `big.Int`, `time.Time`, `x509.OID`), but the production build completed successfully. Neither warning prevented native file loading or normal shutdown.
+
+
+## 12. Foreground spelling correction
+
+The user clarified that the public flag must be `--foreground`. CLI registration, child re-exec, tests, examples, and the native smoke script now use that spelling. The old typo is rejected. Section 11 and the original evidence JSON describe the historical pre-correction run; diary history and verbatim prompts are preserved.

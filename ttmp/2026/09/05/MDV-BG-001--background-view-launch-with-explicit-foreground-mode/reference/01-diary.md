@@ -259,3 +259,65 @@ Final delivery receipts (recorded after the uploaded bundle was rendered):
 - Total actual slips: seven (overall plan; P1/P2/P3 start and completion).
 - Ticket doctor passed before final upload. Initial guide and final bundle have distinct names; no remote document was overwritten.
 - Repository changes remain local on the task branch; no push, merge, or installation was requested or performed.
+
+
+## Step 4: Correct the public foreground flag spelling
+
+Corrected the CLI and internal re-exec arguments to `--foreground` after the user's clarification. The typo is rejected rather than retained as an alias. Updated current examples, the intern guide, ticket overview, and reusable native smoke script while preserving historical evidence and prior verbatim prompts.
+
+### Prompt Context
+
+**User prompt (verbatim):**
+
+> --foreground not with a typo
+>
+> [REMINDER] Output a <summary>...</summary> block at the VERY END of your response. This is mandatory.
+
+**Assistant interpretation:** Replace the misspelled option with the correctly spelled foreground flag everywhere in the current interface.
+
+**Inferred user intent:** Provide a normal, correctly spelled CLI instead of literalizing a typing mistake.
+
+**Commit (code):** 7fd74c0 — "fix: spell foreground flag correctly"
+
+### What I did
+
+- Changed Cobra registration, help, child args, unsupported-platform guidance, tests, and user docs.
+- Changed the rejection test to explicitly reject `--foregruond`.
+- Updated the current design and smoke script; retained historical receipts as historical evidence.
+- Ran gofmt, `go test -tags webkit2_41 ./...`, and `git diff --check` successfully.
+
+### Why
+
+The user clarified the intended spelling. The previous literal interpretation was incorrect.
+
+### What worked
+
+All package tests pass, including corrected foreground dispatch, child arguments, and typo rejection.
+
+### What didn't work
+
+No command failures. The earlier interface used a typo; this step corrects that mistake.
+
+### What I learned
+
+The desired public interface is `--foreground`, not the original prompt's typo.
+
+### What was tricky to build
+
+Parent and child must change together: updating only Cobra would make detached re-exec fail. Updated both, with argument and dispatch regressions covering the boundary.
+
+### What warrants a second pair of eyes
+
+Historical JSON and earlier diary entries intentionally retain the old spelling; they are not current usage instructions.
+
+### What should be done in the future
+
+Rebuild installed binaries to expose the corrected option. Previously uploaded PDFs remain historical snapshots.
+
+### Code review instructions
+
+Review main.go and internal/launch/launch.go together, then run `go test -tags webkit2_41 ./...`.
+
+### Technical details
+
+Current child vector: `view --foreground [--dark] -- /absolute/file`. No typo alias is registered. No process-lifecycle behavior changed.
