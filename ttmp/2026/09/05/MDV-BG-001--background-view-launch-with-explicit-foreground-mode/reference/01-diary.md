@@ -14,6 +14,8 @@ RelatedFiles:
       Note: New default and diagnostics
     - Path: repo://docs/user-guide.md
       Note: Flag logs and migration
+    - Path: repo://go.mod
+      Note: Build promoted existing direct dependencies
     - Path: repo://internal/launch/detach_nonunix_test.go
       Note: Native-test limitation
     - Path: repo://internal/launch/detach_other.go
@@ -30,12 +32,17 @@ RelatedFiles:
       Note: Real child process and failures
     - Path: repo://main_test.go
       Note: Command dispatch and validation
+    - Path: repo://ttmp/2026/09/05/MDV-BG-001--background-view-launch-with-explicit-foreground-mode/scripts/01-native-smoke.py
+      Note: Reproducible tmux native lifecycle assertions
+    - Path: repo://ttmp/2026/09/05/MDV-BG-001--background-view-launch-with-explicit-foreground-mode/scripts/02-native-smoke-results.json
+      Note: Production validation evidence
 ExternalSources: []
 Summary: Chronological background-view implementation and delivery evidence.
 LastUpdated: 2026-09-05T17:35:00-04:00
 WhatFor: Review and resume work with explicit rationale and validation evidence.
 WhenToUse: When reviewing the launch lifecycle change.
 ---
+
 
 
 # Diary
@@ -175,3 +182,80 @@ Start with `main.go:newRootCommand`, then `internal/launch/launch.go:Start`, `ch
 ### Technical details
 
 Child vector: `view --foregruond [--dark] -- /absolute/file`. Logs: `os.UserCacheDir()/md-view/launch-*.log`. Unix: Setsid. Windows: DETACHED_PROCESS plus CREATE_NEW_PROCESS_GROUP. Other platforms return an actionable foreground-mode error.
+
+
+## Step 3: Validate production process ownership and prepare final delivery
+
+Built the actual production Wails binary, rather than relying on a raw Go build, and exercised real native windows from isolated tmux sessions. The smoke used a temporary document with a distinctive frontmatter title plus isolated cache/config directories, so it did not modify the user's recent-file history. The background process survived closing its launcher terminal; explicit foreground stayed blocked until the native window closed.
+
+Recorded a reproducible Python script and its JSON results inside the ticket. Retained Wails' correct go.mod tidy changes, promoting two already-present modules to direct dependencies without version changes. Expanded the guide with observed evidence and limitations instead of treating cross-compilation or forwarded theme args as native visual validation.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Validate the built desktop behavior, finish evidence-backed documentation, and deliver the final guide/diary bundle.
+
+**Inferred user intent:** Obtain a working implementation with reliable review evidence and a complete readable project record.
+
+**Commit (code):** 1721ce4d36c994d0d6f4b3eaeef3c220ff6a87c7 — "test: verify native background and foreground process lifecycles"
+
+### What I did
+
+- `go test -race -tags webkit2_41 ./...`: passed.
+- `go vet -tags webkit2_41 ./...`: passed.
+- `go test ./internal/launch -count=10`: passed.
+- `GOOS=windows CGO_ENABLED=0 go test -c ./internal/launch -o /tmp/mdv-launch-windows.test.exe`: passed.
+- `GOOS=darwin CGO_ENABLED=0 go test -c ./internal/launch -o /tmp/mdv-launch-darwin.test`: passed.
+- `make build`: production Linux/amd64 binary built successfully with Wails v2.12.0 in 32.563 seconds.
+- `python3 ttmp/2026/09/05/MDV-BG-001--background-view-launch-with-explicit-foreground-mode/scripts/01-native-smoke.py > ttmp/2026/09/05/MDV-BG-001--background-view-launch-with-explicit-foreground-mode/scripts/02-native-smoke-results.json`: passed.
+- `go test -tags webkit2_41 ./... -count=1`: all packages passed after build/validation.
+- `git diff --check`: passed; confirmed no task-owned native processes or mdv tmux sessions remained.
+- P2 DONE and P3 START slips reported `printed: true` at 21:39:58Z and 21:40:01Z.
+
+### Why
+
+A successful helper-process test alone cannot prove Wails production startup, file loading, native event-loop blocking, or terminal-close survival. Native smoke covers those boundaries while keeping platform-specific limitations explicit.
+
+### What worked
+
+The background launcher returned zero, and child PID/SID 3353305 was a new session leader. Its stdin pointed to `/dev/null`, stdout/stderr to its private log, and cmdline contained the absolute relative-file resolution plus dark and foreground flags. The native window title matched the fixture's frontmatter. Closing the launcher tmux session did not stop the desktop. Closing the native window stopped it. Foreground mode stayed blocked and returned zero after window close. Help/invalid args did not create launch logs.
+
+### What didn't work
+
+Final `git diff --check` initially exited 2 with `index.md:24: trailing whitespace.` and `index.md:25: trailing whitespace.` because the index used Markdown two-space hard breaks. Replaced those lines with ordinary bullets and reran the check before committing. No test assertions failed. The exploratory command `make build; git status --short; command -v xdotool wmctrl xwininfo; pgrep -af 'md-view|wails'` returned status 1 solely because the final pgrep found no running app; make build itself succeeded.
+
+Wails binding generation emitted `Not found: url.Userinfo`, `Not found: big.Int`, `Not found: time.Time`, and `Not found: x509.OID`, interleaved with `KnownStructs` diagnostics. Native startup emitted `Overriding existing handler for signal 10. Set JSC_SIGNAL_FOR_GC if you want WebKit to use a different signal`. These were nonfatal warnings, not launch failures, and did not block normal window loading or shutdown.
+
+### What I learned
+
+The production runtime honors process-level detachment without changes to Wails callbacks. Window title observation supplies stronger file-load evidence than command arguments alone. Wails' build tidies dependency directness, so post-build git review is necessary even when generated frontend content stays unchanged.
+
+### What was tricky to build
+
+The smoke needed to prove two opposite lifetime contracts without leaving windows behind. A marker file after command return establishes background completion; the absence of that marker while the foreground window exists establishes blocking. Unique tmux session names, window-title matching, isolated config/cache, finally cleanup, and PID-specific checks prevent touching unrelated desktop work. Linux zombie states are treated as exited in `/proc`, avoiding false timeouts when PID 1 has not yet reaped a terminated child.
+
+### What warrants a second pair of eyes
+
+Windows/macOS were cross-compiled only, not run natively. Dark mode was observed in the child argument vector, not verified pixel-by-pixel. Repeated-instance deduplication remains Wails' existing best-effort behavior and was not re-tested as part of this isolated first-instance smoke. Log accumulation and asynchronous GUI failure are documented deliberate constraints.
+
+### What should be done in the future
+
+Run the same process/window lifetime checks on native macOS and Windows before making platform-wide runtime claims. Consider bounded log retention only if accumulated per-launch logs become an operational problem.
+
+### Code review instructions
+
+Read `scripts/02-native-smoke-results.json`, then `scripts/01-native-smoke.py`. Rebuild via `make build` and run the script from the worktree root on Linux/X11 with tmux, wmctrl, and xdotool installed. Inspect `go.mod` to confirm only existing dependencies changed classification. The intern guide section 11 explains evidence versus remaining limits.
+
+### Technical details
+
+Evidence fixture title: `md-view: MDV-BG-001 native smoke`. Background PID and SID: 3353305. Foreground exit status: 0. Test logs were copied into the evidence JSON before temporary cache cleanup. Initial guide delivery remains preserved; final delivery uses a separate bundle name to avoid overwriting annotations.
+
+
+Final delivery receipts (recorded after the uploaded bundle was rendered):
+
+- Final dry-run succeeded, followed by `OK: uploaded MDV-BG-001 Final Guide and Diary.pdf -> /ai/2026/09/05/MDV-BG-001`.
+- P3 DONE slip reported `printed: true`, HTTP 200, at 2026-09-05T21:44:57Z, referencing native-validation commit `1721ce4`.
+- Total actual slips: seven (overall plan; P1/P2/P3 start and completion).
+- Ticket doctor passed before final upload. Initial guide and final bundle have distinct names; no remote document was overwritten.
+- Repository changes remain local on the task branch; no push, merge, or installation was requested or performed.

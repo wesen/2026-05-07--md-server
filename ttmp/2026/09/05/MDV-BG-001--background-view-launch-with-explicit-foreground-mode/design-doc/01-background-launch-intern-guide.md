@@ -10,6 +10,8 @@ DocType: design-doc
 Intent: long-term
 Owners: []
 RelatedFiles:
+    - Path: repo://AGENT.md
+      Note: Native build and tmux requirements
     - Path: repo://Makefile
       Note: Required Wails build and tests
     - Path: repo://app.go
@@ -26,6 +28,7 @@ LastUpdated: 2026-09-05T17:35:00-04:00
 WhatFor: Understand and implement background-by-default view invocations.
 WhenToUse: Before changing CLI process ownership or troubleshooting detached launch.
 ---
+
 
 
 # Background launch intern guide
@@ -287,3 +290,25 @@ Repository references above use baseline `d11c193` line numbers; after edits, na
 - Platform process attributes: https://pkg.go.dev/syscall#SysProcAttr (fields differ by target OS).
 - Cobra command contract: https://pkg.go.dev/github.com/spf13/cobra#Command.
 - Wails options contract: https://pkg.go.dev/github.com/wailsapp/wails/v2/pkg/options#SingleInstanceLock.
+
+
+## 11. Implementation outcome and verified evidence
+
+The implementation follows the proposed architecture: `main.go:newRootCommand` dispatches injected direct/background functions; `internal/launch/launch.go` implements `Start`, `childArgs`, and `start`; build-tagged detachment files select platform policy. No application callbacks or frontend rendering files changed. The production Wails build promoted existing `github.com/pkg/errors` and `golang.org/x/sys` dependencies from indirect to direct in `go.mod`; no versions changed.
+
+Implementation commit is `2db896d`; reproducible native validation and dependency metadata are in `1721ce4`. The script `scripts/01-native-smoke.py` uses uniquely named tmux sessions, a temporary cache/config, and a document with a recognizable frontmatter title. It only closes its own test windows/processes. Run it from the repository root after `make build`. Its recorded output is `scripts/02-native-smoke-results.json`.
+
+Verified on Linux:
+
+- Full uncached tests, race tests, vet, ten repeated launcher-package test runs, and Wails production build passed.
+- Windows and macOS launcher test binaries cross-compiled successfully with CGO disabled.
+- Background production launcher returned zero while child PID 3353305 remained alive; SID was also 3353305.
+- `/proc/PID/cmdline` showed `view --foregruond --dark -- /tmp/.../relative file.md` as distinct args.
+- Child descriptors were `/dev/null` for stdin and the private log for stdout/stderr.
+- The native window title was `md-view: MDV-BG-001 native smoke`, demonstrating that the absolute file reached rendering/frontmatter title handling.
+- The desktop survived closing the launcher tmux session and then exited when its own window closed.
+- Foreground mode did not return while its window was open and returned zero after the window closed.
+- Help, extra positional args, and unknown flags created no new launch logs; invalid invocations returned nonzero.
+- No task-owned application processes or tmux sessions remained after validation.
+
+The smoke observes dark mode in child args, not rendered theme pixels. It does not establish Windows/macOS native session behavior or repeated-instance deduplication. Those remain explicit validation limitations, not claims inferred from Linux. Native startup emitted the nonfatal WebKit diagnostic `Overriding existing handler for signal 10. Set JSC_SIGNAL_FOR_GC if you want WebKit to use a different signal`. Wails binding generation also warned about unresolved standard-library model types (`url.Userinfo`, `big.Int`, `time.Time`, `x509.OID`), but the production build completed successfully. Neither warning prevented native file loading or normal shutdown.
