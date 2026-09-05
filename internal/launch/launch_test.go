@@ -21,7 +21,7 @@ func TestChildArgs(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := []string{"view", "--foregruond"}
+			want := []string{"view", "--foreground"}
 			if dark {
 				want = append(want, "--dark")
 			}

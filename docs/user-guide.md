@@ -79,11 +79,11 @@ The primary command. Opens a Markdown file rendered as HTML in a native window.
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--dark` | bool | false | Open the file in dark mode |
-| `--foregruond` | bool | false | Run directly and wait for the desktop to exit (intentional spelling) |
+| `--foreground` | bool | false | Run directly and wait for the desktop to exit |
 
 Default `view` re-executes the same binary without inheriting terminal streams. On Linux/macOS it starts a new session; Windows uses detached-process flags. It inherits your working directory and desktop environment. Closing the terminal should not close the window, but logging out may still terminate desktop-session processes.
 
-A successful return means the OS started the child, **not** that the window is ready or the file rendered. Child stdout/stderr go to a private `launch-*.log` under `os.UserCacheDir()/md-view/` (usually `~/.cache/md-view/` on Linux). The printed PID may already have exited after a single-instance handoff. Logs accumulate; remove old logs yourself. Some file errors are shown in the window instead of the log. For attached diagnostics or scripts that must wait, use `md-view view --foregruond FILE`. Bare `md-view` remains attached.
+A successful return means the OS started the child, **not** that the window is ready or the file rendered. Child stdout/stderr go to a private `launch-*.log` under `os.UserCacheDir()/md-view/` (usually `~/.cache/md-view/` on Linux). The printed PID may already have exited after a single-instance handoff. Logs accumulate; remove old logs yourself. Some file errors are shown in the window instead of the log. For attached diagnostics or scripts that must wait, use `md-view view --foreground FILE`. Bare `md-view` remains attached.
 
 **Examples:**
 

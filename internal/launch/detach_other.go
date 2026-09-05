@@ -9,5 +9,5 @@ import (
 )
 
 func detach(_ *exec.Cmd) error {
-	return errors.New("background launch is supported only on Linux, macOS, and Windows; use --foregruond")
+	return errors.New("background launch is supported only on Linux, macOS, and Windows; use --foreground")
 }

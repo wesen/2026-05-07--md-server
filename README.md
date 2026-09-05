@@ -23,10 +23,10 @@ That's it. A native window opens showing the rendered Markdown. Edit the file, a
 |---------|-------------|
 | `md-view view <FILE>` | Open a native window in the background; return immediately |
 | `md-view view --dark <FILE>` | Open it in dark mode in the background |
-| `md-view view --foregruond <FILE>` | Stay attached until the desktop exits |
+| `md-view view --foreground <FILE>` | Stay attached until the desktop exits |
 | `md-view` (no args) | Open an empty window (also what double-clicking the binary does) |
 
-> **Note:** The foreground flag is spelled `--foregruond`. Default `view` prints a child PID and private per-launch log path under `os.UserCacheDir()/md-view/`. Success means process creation, not window readiness; use the log or foreground mode for startup diagnostics. Logs accumulate and may be removed when no longer needed. Close the window to quit; there are no `serve`, `status`, or `stop` commands.
+> **Note:** The foreground flag is spelled `--foreground`. Default `view` prints a child PID and private per-launch log path under `os.UserCacheDir()/md-view/`. Success means process creation, not window readiness; use the log or foreground mode for startup diagnostics. Logs accumulate and may be removed when no longer needed. Close the window to quit; there are no `serve`, `status`, or `stop` commands.
 
 ## Key Features
 
@@ -49,7 +49,7 @@ That's it. A native window opens showing the rendered Markdown. Edit the file, a
 
 ## Architecture
 
-The desktop is one Wails v2 process. Default `view` starts a detached copy of the same binary and returns; that child owns the lifecycle below (or hands off to an existing window). `view --foregruond` and bare `md-view` run this lifecycle directly. No shell or server is involved.
+The desktop is one Wails v2 process. Default `view` starts a detached copy of the same binary and returns; that child owns the lifecycle below (or hands off to an existing window). `view --foreground` and bare `md-view` run this lifecycle directly. No shell or server is involved.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐

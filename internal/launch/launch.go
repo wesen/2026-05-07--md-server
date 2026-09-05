@@ -36,7 +36,7 @@ func Start(file string, dark bool) (Result, error) {
 }
 
 func childArgs(file string, dark bool) ([]string, error) {
-	args := []string{"view", "--foregruond"}
+	args := []string{"view", "--foreground"}
 	if dark {
 		args = append(args, "--dark")
 	}

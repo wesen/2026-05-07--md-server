@@ -19,13 +19,13 @@ func TestCommandDispatch(t *testing.T) {
 		{name: "background", args: []string{"view", "notes.md"}, mode: "background", file: "notes.md"},
 		{name: "empty view", args: []string{"view"}, mode: "background"},
 		{name: "dark", args: []string{"view", "--dark", "a b.md"}, mode: "background", file: "a b.md", dark: true},
-		{name: "foreground", args: []string{"view", "a.md", "--foregruond", "--dark"}, mode: "desktop", file: "a.md", dark: true},
-		{name: "false foreground", args: []string{"view", "--foregruond=false"}, mode: "background"},
+		{name: "foreground", args: []string{"view", "a.md", "--foreground", "--dark"}, mode: "desktop", file: "a.md", dark: true},
+		{name: "false foreground", args: []string{"view", "--foreground=false"}, mode: "background"},
 		{name: "root", args: []string{}, mode: "desktop"},
 		{name: "separator", args: []string{"view", "--", "--dark"}, mode: "background", file: "--dark"},
 		{name: "help", args: []string{"view", "--help"}},
 		{name: "unknown flag", args: []string{"view", "--unknown"}, fail: true},
-		{name: "unrequested spelling", args: []string{"view", "--foreground"}, fail: true},
+		{name: "reject typo", args: []string{"view", "--foregruond"}, fail: true},
 		{name: "extra file", args: []string{"view", "a", "b"}, fail: true},
 	}
 	for _, tt := range tests {
@@ -61,7 +61,7 @@ func TestCommandDispatch(t *testing.T) {
 func TestCommandPropagatesLaunchErrors(t *testing.T) {
 	want := errors.New("launch failed")
 	fail := func(string, bool) error { return want }
-	for _, args := range [][]string{{"view"}, {"view", "--foregruond"}, {}} {
+	for _, args := range [][]string{{"view"}, {"view", "--foreground"}, {}} {
 		cmd := newRootCommand(fail, fail)
 		cmd.SetArgs(args)
 		cmd.SetOut(io.Discard)

@@ -51,15 +51,15 @@ func newRootCommand(desktop, background func(string, bool) error) *cobra.Command
 		Long: `View a markdown file rendered as HTML in the md-view desktop window.
 
 Runs in the background by default and prints the child PID and private log path.
-Success means the process started, not that a window is ready. Use --foregruond
-(the intentional flag spelling) to stay attached and see desktop diagnostics.
+Success means the process started, not that a window is ready. Use --foreground
+to stay attached and see desktop diagnostics.
 
 If the app is already running, Wails attempts to reuse the existing window.
 
 Examples:
   md-view view ./README.md
   md-view view --dark ./notes.md
-  md-view view --foregruond ./doc.md  # wait until the desktop exits`,
+  md-view view --foreground ./doc.md  # wait until the desktop exits`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			file := ""
@@ -73,7 +73,7 @@ Examples:
 		},
 	}
 	viewCmd.Flags().BoolVar(&viewDark, "dark", false, "Use the dark theme")
-	viewCmd.Flags().BoolVar(&viewForeground, "foregruond", false, "Stay in the foreground (do not detach)")
+	viewCmd.Flags().BoolVar(&viewForeground, "foreground", false, "Stay in the foreground (do not detach)")
 
 	// Bare `md-view` (no subcommand) opens an empty window — this is also what
 	// happens when the binary is double-clicked. (Wails single-instance: a 2nd
